@@ -1,12 +1,13 @@
 #define DEBUG 1
 #define _NAME "KittenLights"
 	/*	Name:		Dinklage II
-		Version: 	C
+		Version: 	D
 		Date: 		2024-Aug-08
 
 	*/
 #include <Arduino.h>
 #include <LittleFS.h>
+#include "Attic.h"
 #include <ESP8266WiFi.h>
 // ~~#include <ESP8266WebServer.h>~~
 #include <ESPAsyncWebServer.h>
