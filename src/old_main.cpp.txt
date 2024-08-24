@@ -1,0 +1,1052 @@
+// #define DEBUG 1
+// #define _NAME "KittenLights"
+	/*	Name:		Dinklage II
+		Version: 	D
+		Date: 		2024-Aug-08
+
+	*/
+// #include <Arduino.h>
+// #include <LittleFS.h>
+// #include "Attic.h"
+// #include <ESP8266WiFi.h>
+// ~~#include <ESP8266WebServer.h>~~
+// #include <ESPAsyncWebServer.h>
+// #include <ESP8266mDNS.h>
+// #include <Adafruit_NeoPixel.h>
+// #define ARDUINOJSON_SLOT_ID_SIZE 2					//	1: max nodes 256;  2: 65635
+// #define ARDUINOJSON_STRING_LENGTH_SIZE 2		//	1: max characters 255;	2: 65635
+// #include <ArduinoJson.h>			// Copyright © 2014-2024, Benoit BLANCHON
+// #include "fourChannelTransition.h"
+// #include "morseEncoder.h"
+// #include "calibrate3dOrientation.h"
+
+		//////////////////////////////////////////////
+		//        RemoteXY include library          //
+		//////////////////////////////////////////////
+	/* 	RemoteXY Configuration Settings --------------------------------------- */
+	// you can enable debug logging to Serial at 115200
+	// #define REMOTEXY__DEBUGLOG
+	// #define REMOTEXY_ACCESS_PASSWORD "PUMBAH"
+	// #define REMOTEXY_MODE__WIFI		//	RemoteXY select connection mode
+	// RemoteXY WIFI connection settings 
+	// #define REMOTEXY_WIFI_SSID "Old Iron 67"
+	// #define REMOTEXY_WIFI_PASSWORD "needsomethingbettertodo"
+	// #define REMOTEXY_SERVER_PORT 6377
+	// #include <RemoteXY.h>
+	/* 	RemoteXY GUI Configuration Settings ------------------------------------ */
+	
+// Definition of macros		-----------------------------------------------------
+#define PULLUP			true			//	true if GPIO pins are Vcc-pullup, false if gnd-pulldown.
+#define RED_LED				15			//	blue 13, green 12, red 5
+#define GREEN_LED			12
+#define BLUE_LED			13
+#define BTN_PIN				04			//	onboard flash button 04
+#define HTTP_PORT			80
+// #define NEO_PIN				D7			//	GPIO13
+#define NEO_PIN				D7			
+#define LED_COUNT		 150			//	hardware number of pixels in led strip
+#define BRIGHTNESS		50			//	Set BRIGHTNESS to about 1/5 (max = 255) ?dint?
+
+byte dumb[4]{1,0,2,3};		//	byte order for R G B W
+const int LED_numBytes = LED_COUNT*4;		//	Pixel byte array length
+Adafruit_NeoPixel Strip(LED_COUNT, NEO_PIN, NEO_GRBW + NEO_KHZ800);
+/* 		Argument 1 = Number of pixels in NeoPixel Strip
+		Argument 2 = Arduino pin number (most are valid)
+		Argument 3 = Pixel type flags, add together as needed:
+		NEO_KHZ800  800 KHz bitstream (most NeoPixel products w/WS2812 LEDs)
+		NEO_KHZ400  400 KHz (classic 'v1' (not v2) FLORA pixels, WS2811 drivers)
+		NEO_GRB     Pixels are wired for GRB bitstream (most NeoPixel products)
+		NEO_RGB     Pixels are wired for RGB bitstream (v1 FLORA pixels, not v2)
+		NEO_RGBW    Pixels are wired for RGBW bitstream (NeoPixel RGBW products) */
+
+/*	Put your SSID & Password */
+const char* ssid = REMOTEXY_WIFI_SSID;
+const char* password = "needsomethingbettertodo"; // REMOTEXY_WIFI_PASSWORD;
+bool mode_STA = true;
+bool mode_remoteXY = false;
+// ESP8266WebServer server(HTTP_PORT);
+AsyncWebServer server(HTTP_PORT);
+AsyncWebSocket ws("/ws");
+
+/*	Only for AP mode, put IP Address details */
+IPAddress local_ip(192,168,1,1);
+IPAddress gateway(192,168,1,1);
+IPAddress subnet(255,255,255,0);
+const char* ssid_AP = "ESP8266";
+const char* password_AP = "deeznutz";
+uint32_t sunsetA = 0x3aFBB03B;	//	w = 23% (b=2)
+uint32_t sunsetB = 0x1cED1C24;	//	w = 11% (b=7)
+uint32_t sunriseA = 0x8eff8f8f;	//	w = 56%
+uint32_t sunriseB = 0x99fffc99;	//	w = 60%
+
+#ifdef DEBUG 
+	namespace Debug {
+		// Debug Serial Print Line: dspl
+		// quick insert Serial.println() statemnents all through the code for debugging purposes. 
+		void dspl() {
+			Serial.println();
+		}
+		void dspl(char noCR) {
+			if (noCR != '\0') Serial.println(noCR);
+		}
+		template<typename TT, typename... Types>
+		void dspl(TT printableType, Types... Queued) {
+			if (DEBUG) {
+				Serial.print(printableType);
+				Serial.print(' ');
+				dspl(Queued...);
+			}
+			else NULL;		//	compiler should automatically Strip all dspl statements
+		}
+	};		//		END namespace Debug
+	using namespace Debug;
+#endif
+
+/*	Serial and parse data Comms */
+const byte numChars = 32;
+char rcvdChars[numChars];   // an array to store the received data
+boolean newCmd = false;
+
+/*	Globals	-----------------------------------------------------	*/
+const uint8_t DEBOUNCE_DELAY = 10;		//	milliseconds
+const int longestDelay = 50;
+const int shortestDelay = 2;
+enum animationDirection: byte {
+	_proximal, _distal, _lateral, _medial, _static,
+};
+morseEncoder Morse(4,9);
+calibrate3dOrientation Cal;
+
+enum illumination: uint8_t 
+{
+	_start=0, _mirror, decay, radiate, sparkle, 			//		toggle bit
+	comet, larson, dirFwd, 															//		exclusive bit
+	_stop=16,	dirBkwd																	//		unmapped functions
+};
+struct Mode_t {
+	uint16_t bitMap16{4};		//	0010 0100 : stop, baseline-decay
+	bool set(illumination Ac) {
+		switch (Ac) {
+			default 			: return false; break;
+			case _mirror	:	_toggle(int(Ac));	break;
+			case decay  	:	bitSet(bitMap16,int(Ac));	bitClear(bitMap16,int(illumination::radiate)); break;
+			case radiate	:	bitSet(bitMap16,int(Ac));	bitClear(bitMap16,int(illumination::decay)); break;
+			case comet  	:	_clearExclusives(int(Ac)); break;
+			case larson 	:	_clearExclusives(int(Ac)); break;
+			case sparkle 	:	_toggle(int(Ac));	break;
+			case _start		:	bitSet(bitMap16,int(Ac));  break;
+			case _stop		:	bitClear(bitMap16,int(illumination::_start));  break;
+		}
+		return true;
+	}
+	bool get(illumination Ac) {
+		bool result{false};
+		switch (Ac) {
+			default 			:	result = false; break;
+			case _stop		:	result = !bitRead(bitMap16,int(illumination::_start));	break;
+			case _start		:	;
+			case _mirror	:	;
+			case decay  	:	;
+			case radiate	:	;		//	intentional fall through
+			case sparkle 	:	;
+			case comet  	:	;
+			case larson 	:	result = bitRead(bitMap16,int(Ac));	break;
+		}
+		return result;
+	}
+	bool _toggle(int B) {
+		bitWrite(bitMap16, B, !(bitRead(bitMap16,B)));
+		return bitRead(bitMap16,B);
+	}
+	void _clearExclusives(int optional=-1) {
+		if (optional > 15) optional = -1;
+		uint16_t exclusivesBitmap = 0b0000000000011111;		//	0's are the exclusives
+		if (optional>=0) {
+			bitSet(exclusivesBitmap, optional);
+			bitSet(bitMap16,optional);
+		}
+		bitMap16 &= exclusivesBitmap;
+	}
+};
+struct _timeout_t {
+	uint32_t time{};
+	void add(int _ms) {
+		time += _ms;	}
+	void set(int _ms) {
+		time = millis() + _ms;	}
+	bool valid() {
+		return time > millis();	}
+	bool expired() {
+		return time <= millis();	}
+};
+// Definition of the LED component		-----------------------------------------
+struct Led_t {
+	uint8_t pin;
+	bool state;	
+	void update() {	digitalWrite(pin, state ? HIGH : LOW);	}
+	void  on()	{	state = true;	}
+	void off()	{	state = false;	}
+	void tog()	{	state = !state;	}
+};
+// Definition of the Button component		---------------------------------------
+struct Button_t {
+	uint8_t  pin;
+	bool     lastReading;
+	uint32_t lastDebounceTime;
+	uint16_t state;
+	byte history;
+	bool pressed()			{ return state == 1; }
+	bool released()			{ return state == 0xffff; }
+	bool held(uint16_t _ms = 0) {
+		//	use: has button been held for over x milliseconds?  default: held irregardless of time
+		//	after ~40s might encounter rollover issues.
+		return (state<0xffff && state*DEBOUNCE_DELAY > _ms+DEBOUNCE_DELAY); 
+	}
+	void read() {
+		bool reading = digitalRead(pin);
+		if (reading != lastReading) {
+			lastDebounceTime = millis();
+		}
+		if (millis() - lastDebounceTime > DEBOUNCE_DELAY) {
+			bool pressed = (reading==LOW);	// read pin is pullup
+			if (pressed) {
+				if (state  < 0xfffe) state++;
+				else if (state == 0xfffe) state = 2;
+			} else if (state) state = state == 0xffff ? 0 : 0xffff;
+		}
+		lastReading = reading;
+	}
+};
+
+struct decayColour32_t {
+	byte R,G,B,W;
+	bool isZero()	{	return (R+G+B+W == 0);	}
+	int dAmt(int channel) {
+		switch (channel) {
+			case 1 : return R;
+			case 0 : return G;
+			case 2 : return B;
+			case 3 : return W;
+			default : return 0;
+		}
+	}
+	void setR(byte val)	{	R=val;	}
+	void setG(byte val)	{	G=val;	}
+	void setB(byte val)	{	B=val;	}
+	void setW(byte val)	{	W=val;	}
+	void setRGB(byte val) {	setR(val);	setG(val);	setB(val);	}
+	void setAll(byte val) {	setRGB(val);	setW(val);	}
+};
+
+
+/*		Forward Declarations		°º¤ø,¸¸,ø¤º°`°º¤ø,¸,ø¤°º¤ø,¸¸,ø¤º°`°º¤ø,¸			*/
+	uint32_t Wheel(byte);
+	String SendHTML(uint8_t, uint8_t);
+	void	generateRandomSeed() ;
+	uint8_t	gamma(uint8_t) ;
+	uint32_t	gamma32(uint32_t) ;
+	void	setBaselineColourFromRGBW(byte, byte, byte, byte) ;
+	int	risingHalfSineWave(uint16_t, uint16_t, int16_t, uint16_t) ;
+	int	halfCircle(int, int, bool) ;
+	bool	_decayTick(uint8_t) ;
+	void	_pixelDecay(int) ;
+	uint8_t*	_getSpecificLED_ptr(int) ;
+	void doLeds(void) ;
+	void Cursor(byte, uint32_t, int) ;
+	void Cursor_run(byte, byte, uint32_t) ;
+	void followMe() ;
+Mode_t Para;
+_timeout_t Timeout;
+decayColour32_t decayRate{8,8,8,8};
+byte _decayArrayRGBW[4]{8,8,8,8};
+char ERR_CODE[6]{'\0'};
+const char* ERR_CODE_ptr = &ERR_CODE[0];
+
+Led_t onboard_led	= { LED_BUILTIN, false };
+Button_t button		= { BTN_PIN, HIGH, 0, 0 };
+Led_t	ledR		= { RED_LED, 0 };
+Led_t	ledG		= { GREEN_LED, 0 };
+Led_t	ledB		= { BLUE_LED, 0 };
+animationDirection direction{_static};
+int _pulseInterval{3000};
+int _priorityPixel{3};
+uint32_t _baselineColour{0x1000100};		//		0xwwbbrrgg
+int step{0};
+
+
+
+/*			Functions							°º¤ø,¸¸,ø¤º°`°º¤ø,¸,ø¤°º¤ø,¸¸,ø¤º°`°º¤ø,¸			*/
+uint32_t _seekAnswers() {
+	uint32_t answer{};
+	for (int i = 0; i < 9; i++) {		answer += analogRead(i);		answer *= analogRead(i);	}
+	return answer;
+}
+void generateRandomSeed() {
+	randomSeed((int32_t)_seekAnswers());
+	int r = random(8 * (1 + (int)_seekAnswers()));
+	while (r-- > 0) (void)random(r);		//	burn rnd lot of rnd generated numbers
+}
+
+// FS initialization		-------------------------------------------------------
+void initLittleFS() {
+	if (!LittleFS.begin()) {
+		Serial.println("Cannot mount LittleFS volume...");
+		ERR_CODE_ptr = "fs";
+		while (1) {
+			doLeds(); 
+		}
+	}
+}
+void doLeds(void) {
+	ledR.state = Para.get(decay);
+	ledG.state = Para.get(radiate);
+	ledB.state = Para.get(sparkle);
+	onboard_led.state = !Morse.iterate(ERR_CODE_ptr);
+	onboard_led.update();
+	ledR.update();
+	ledG.update();
+	ledB.update();
+};
+
+uint8_t gamma(uint8_t ColourByte) {
+	const float G = 2.2;
+	float PercentIntensity = (float)ColourByte / (float)255.0;
+	float Res = pow(PercentIntensity, G) * 255.0 + 0.5;
+	return (uint8_t)Res;
+}
+uint32_t gamma32(uint32_t x) {
+// A 32-bit variant of gamma8() 
+  uint8_t *y = (uint8_t *)&x;
+  // All four bytes of a 32-bit value are filtered even if not WRGB
+  for (uint8_t i = 0; i < 4; i++)
+		y[i] = gamma(y[i]);
+  return x; // Packed 32-bit return
+}
+
+void setBaselineColourFromRGBW(byte rr, byte gg, byte bb, byte ww=0) {
+	_baselineColour = Strip.Color(bb, rr, gg, ww);		//	yes, Adafruit_NeoPixel.Color() is stupid!
+}
+
+int risingHalfSineWave(uint16_t Y_min, uint16_t Y_max, int16_t X, uint16_t X_max) {
+	// T:0.11µs
+	// https://www.wolframalpha.com/input?i=plot+%28%28sin+0.5x*pi%2F150%29%5E2%29+*+120%3B++between+0+and+150
+	return pow(sin (0.5*X*PI/(X_max)),2) *(Y_max-Y_min) + Y_min;
+}
+
+int halfCircle(int Radius, int X, bool invert=false) {
+	// T: 7µs.
+	//	https://www.wolframalpha.com/input?i=75+-+sqrt%2875%5E2+-+%28x+-+75%29%5E2%29&assumption=%22ClashPrefs%22+-%3E+%7B%22Math%22%7D
+	Radius = min(255,max(2,Radius));
+	X = min(2*Radius,max(0,X));
+	int res = sqrt(pow(Radius,2) - pow(X-Radius,2));		//	◠
+	if (invert) res = Radius-res;												//	◡
+	return res;
+}
+
+bool _decayTick(uint8_t newValue = 0) {
+	/*	holds static values for framesPerSecond and decayTick.
+			Animation speed is linked to _fps, this func serves as a heart beat for frames.
+				Controls animation speed precisely without using delay().
+			_fps can be altered with newValue parameter, which sets the time period for _dTick
+			Call this func at the end of each loop() to decide when to send led array update data
+			_fps to equiv. approx. delay() time :-
+				20 =~ 50ms,	30 =~ 33.3ms,	40 =~25ms,	60 =~ 16.6ms,	90 =~ 11ms,	120 =~ 8ms.
+	*/
+	static uint8_t _fps{40};
+	static uint32_t _dTick{};
+	if (newValue > 0) _fps = newValue;					//	set
+	else if (newValue < 0) _dTick = millis();		//	reset
+	else if (millis() >= _dTick) {							//	f()
+		_dTick = millis() + (1000/_fps);
+		return true;
+	}
+	return false;
+}
+
+void rainbow(uint8_t wait) {
+	// simple way to test all lights are working fine
+	static byte W{0};
+	if (Timeout.expired()) {
+		Timeout.set(wait);
+	// }
+	// if (timeout < millis()) {
+	// 	timeout = millis() + wait;
+		for(int i=0; i<Strip.numPixels(); i++) {
+			Strip.setPixelColor(i, Wheel((i+W) & 255));
+		}
+		W++;
+	}
+}
+
+void rainbowCycle(uint8_t wait) {
+	// Slightly different, this makes the rainbow equally distributed throughout
+  static byte W{0};
+	if (Timeout.expired()) {
+		Timeout.set(wait);
+		for(int i=0; i< Strip.numPixels(); i++) {
+			Strip.setPixelColor(i, Wheel(((i * 256 / Strip.numPixels()) + W) & 255));
+		}
+		W++;
+	}
+}
+
+void theaterChaseRainbow(uint8_t wait, bool useBaselineColourInstead=0) {
+	//	Theatre-style crawling lights with rainbow effect
+	static byte _cWheel{};
+	static byte _Round{};
+	if (Timeout.expired()) {
+		Timeout.set(wait);
+			for (uint16_t i=0; i < Strip.numPixels(); i=i+3) {					//	every 3rd pixel
+				Strip.setPixelColor(i+_Round+1, useBaselineColourInstead? _baselineColour: Wheel((i+_cWheel)%255) );		//	set colour variation
+				Strip.setPixelColor(i+_Round, 0);												//	prev round off
+			}
+			_Round++;
+			if (_Round > 3) {
+				_Round = 0;
+				_cWheel++;		//	expect byte to rollover back to 0x0. 256 colours
+			}
+	}
+}
+uint32_t Wheel(byte WheelPos) {
+	// Input a value 0 to 255 to get a color value. Colours transition r - g - b - back to r.
+  WheelPos = 255 - WheelPos;
+  if(WheelPos < 85) {
+		return Strip.Color(255 - WheelPos * 3, 0, WheelPos * 3);
+  }
+  if(WheelPos < 170) {
+		WheelPos -= 85;
+		return Strip.Color(0, WheelPos * 3, 255 - WheelPos * 3);
+  }
+  WheelPos -= 170;
+  return Strip.Color(WheelPos * 3, 255 - WheelPos * 3, 0);
+}
+
+void Init_mDNS(const char *name) {
+  if (!MDNS.begin(name)) {
+    Serial.println("mDNS failed to be started");
+  }
+  else	{
+    Serial.print("mDNS started, hostname:");
+    Serial.println(name);
+    Serial.printf("(try address 'http://%s.local/' from a computer browser)\n", name);
+  }
+}
+
+void Init_WiFiMode(bool comingFromSetup = false) {
+	// setup network.  Different for first time (from setup).  Respects STA/AP mode.
+	if (comingFromSetup) {
+		Init_mDNS("striplight");
+	}
+	else {
+		WiFi.disconnect();
+		delay(100);
+	}
+	if (mode_STA) {
+		Serial.print("\nConnecting to ");
+		Serial.print(ssid);
+		WiFi.begin(ssid, password);		//connect to your local wi-fi network
+		//check wi-fi is connected to wi-fi network
+		while (WiFi.status() != WL_CONNECTED) {
+			if (Timeout.expired()) {
+				Serial.print(".");
+				Timeout.set(1000);
+			} 
+		}
+		Serial.print("\nWiFi connected with IP: ");
+		Serial.println(WiFi.localIP());
+	}
+	else {
+		WiFi.softAP(ssid_AP, password_AP);
+		WiFi.softAPConfig(local_ip, gateway, subnet);
+	}	
+	delay(100);
+}
+/* 
+void handle_OnConnect() {
+	Serial.println("Status: reset | ");
+	server.send(200, "text/html", SendHTML(0,0)); 
+}
+void handle_NotFound() {
+	server.send(404, "text/plain", "Not found");
+}
+void handle_led(uint8_t LED, bool On) {
+	Strip.setPixelColor(LED, On?0x00005500:0x00);		//	green
+	Strip.show();
+	if (LED%2==0) server.send(200, "text/html", SendHTML(false, On)); 
+	else server.send(200, "text/html", SendHTML(On, false)); 
+}
+void handle_led1on() {
+	Strip.setPixelColor(75,0x00005500);	//	green
+	Strip.show();
+	Serial.println("Strip Status: ON");
+	server.send(200, "text/html", SendHTML(true,false)); 
+	int i = 75;
+	while (i>=0) {
+		//Copy();
+		delay(10);		
+	}
+}
+void handle_led1off() {
+	Serial.println("Strip Status: OFF");
+	server.send(200, "text/html", SendHTML(false,false)); 
+	Strip.clear();
+	Strip.show();
+}
+void handle_led2on() {
+	server.send(200, "text/html", SendHTML(0,1)); 
+	theaterChaseRainbow(50);
+}
+void handle_led2off() {
+	server.send(200, "text/html", SendHTML(0,0)); 
+	
+}
+
+void Init_ServerCmds() {
+	server.on("/",				handle_OnConnect);
+	server.on("/led1on",	handle_led1on);
+	server.on("/led1off",	handle_led1off);
+	server.on("/led2on",	handle_led2on);
+	server.on("/led2off",	handle_led2off);
+	server.onNotFound		 (handle_NotFound);				//	OR: handle file system retrieve
+	server.begin();																//	start server
+	Serial.println("HTTP server started");
+} */
+
+
+// Web server initialization		-----------------------------------------------
+String processor(const String &var) {
+	if (var == "STATE" && Para.get(radiate))	return String("checked");
+	return String("off");
+}
+void onRootRequest(AsyncWebServerRequest *request) {
+	request->send(LittleFS, "/index.html", "text/html", false, processor);
+}
+void initWebServer() {
+		server.on("/", onRootRequest);
+		server.serveStatic("/", LittleFS, "/");
+		server.begin();
+}
+
+// WebSocket initialization		-------------------------------------------------
+void notifyClients(int ClientID=0) {
+		JsonDocument jsonDoc;
+		jsonDoc["mode"] 	= Para.get(sparkle)?"spkl":Para.get(radiate)?"rad":"dec";
+		// buffer:: 2, +_ms chars, +2 per "string", +3 per line.
+		char buffer[20];
+		size_t docLen = serializeJson(jsonDoc, buffer);
+		ClientID==0?ws.textAll(buffer, docLen):ws.text(ClientID, buffer, docLen);
+}
+
+void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
+	AwsFrameInfo* info = (AwsFrameInfo*)arg;
+	if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
+		JsonDocument json;
+		DeserializationError err = deserializeJson(json, data);
+		if (err) {
+			Serial.print(F("deserializeJson() failed with code "));
+			Serial.println(err.c_str());		//	a string representation of the error.
+			return;
+		}
+		const char* action = json["act"];
+		if (strcmp(action, "rad") == 0)	{	
+			Para.set(radiate);
+		}
+		else if (strcmp(action, "dec") == 0)	{	
+			Para.set(decay);
+		}
+		else if (strcmp(action, "spkl") == 0)	{	
+			Para.set(sparkle);
+		}
+		else {		
+			return;			//	unknown command recieved
+		}
+		notifyClients();
+	}
+}
+
+void onEvent(AsyncWebSocket*	server,
+			 AsyncWebSocketClient*	client,
+			 AwsEventType						type,
+			 void*									arg,
+			 uint8_t*								data,
+			 size_t									len) 
+			 {
+	switch (type) {
+		case WS_EVT_CONNECT:
+			Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
+			break;
+		case WS_EVT_DISCONNECT:
+			Serial.printf("WebSocket client #%u disconnected\n", client->id());
+			break;
+		case WS_EVT_DATA:
+			Serial.printf("WS data rcvd: client #%u D:%i(%u)\n", client->id(), *data, len);
+			handleWebSocketMessage(arg, data, len);
+			break;
+		case WS_EVT_PONG:
+			Serial.printf("WebSocket client #%u PONG(?)D:%u(%u)\n", client->id(), *data, len);
+		case WS_EVT_ERROR:
+			Serial.printf("WebSocket client #%u ERROR(?)D:%u(%u)\n", client->id(), *data, len);
+			break;
+	}
+}
+
+void initWebSocket() {
+		ws.onEvent(onEvent);
+		server.addHandler(&ws);
+}
+
+void handleRemoteXY() {
+	const int _mag = 57;	//	turns float PI into dec degrees with 0.0052° rounding error.)
+	static int _yawHigh, _yawLow;
+	static byte _btn_Calibrate{0};
+	static _timeout_t XYtime{0};
+	static byte _p{0};
+	if (XYtime.expired()) {
+		int degYaw, degRoll, degPitch;
+		if (!RemoteXY.Live) {
+			setBaselineColourFromRGBW(0,0,0,0);
+			if 			(RemoteXY.Mode==0) 		Para.set(radiate);
+			else if	(RemoteXY.Mode==1) 		Para.set(decay);
+			else if	(RemoteXY.Mode==2) 		Para.set(sparkle);
+		}
+		if (RemoteXY.Live) {
+			degPitch	= int (_mag * RemoteXY.pitch);
+			degRoll		= int (_mag * RemoteXY.roll);
+			degYaw		= int (_mag * RemoteXY.yaw);
+			
+			_btn_Calibrate<<=1;
+			bitWrite(_btn_Calibrate, 0, (RemoteXY.Calibrate>0) );
+			if (_btn_Calibrate==0x7f) {
+				_yawHigh=0; _yawLow=0;
+				if (RemoteXY.yaw < 0) _yawLow = RemoteXY.yaw*_mag;
+				else _yawHigh = RemoteXY.yaw * _mag;
+				setBaselineColourFromRGBW(0,0,0,0);
+				decayRate.setAll(12);
+				Para.set(decay);
+				Para.set(_stop);
+				if (Para.get(sparkle)) Para.set(sparkle);
+				// dspl("\nCalibrate: ", _yawLow, _yawHigh, ratio, "\n     PRY:\t", bigPitch, degRoll, bigYaw);
+			}				//	END btn_calibrate
+			// if (_yawLow+_yawHigh > 20) {
+			// 	int P = map(degYaw, _yawLow, _yawHigh, 0, 150);
+			// 	int W{0};
+			// 	if 			(degPitch>24) W=0;
+			// 	else if (degPitch>16) W=1;
+			// 	else if (degPitch> 8) W=3;
+			// 	else if (degPitch> 0) W=5;
+			// 	else if (degPitch>-8) W=7;
+			// 	else if (degPitch>-16) W=9;
+			// 	else if (degPitch>-24) W=3;
+			// 	else if (degPitch>-32) W=1;
+			// 	if (W > 0 && P>=0 && P<LED_COUNT) {
+			// 		if (_p && ((P > _p+W) || (P < _p-W))) 	Cursor_run(_p, P, sunsetA);
+			// 		else 	Cursor(P, sunsetA, W);
+			// 		if (_btn_Calibrate>64) if (++_btn_Calibrate > 256) _btn_Calibrate=0;
+			// 		_p = P;
+			// 	} else _p = 0;
+			// } else 
+			followMe();
+		}
+		XYtime.add(5);
+	}		//	END if(XYtime)
+}
+void handleCLI() {
+	int myarg{};
+	char* I{};
+	char cmdList[][6]={	"help", 	"go", 		"pause",	"dRGB",		"dR",			"dG", 		"dB", 		"dW", 
+											"mirro",	"start",	"stop", 	"rad",		"decay",	"ls", 		"comet", 	"spark",
+											"bl", 		"fps", 		"stat",		"gamma",	"pp",			"y", 			"x",			};
+	if (newCmd) {
+		I = strchr(rcvdChars,' ');
+		myarg = atoi(I);
+		if (strstr(rcvdChars, "help")) {
+			dspl("\t", cmdList[1], ":\t[l|r|m|e]\n\t", 
+			cmdList[2], ":\t in ms. ie: 3000\n\t",
+			cmdList[3], cmdList[4], cmdList[5], cmdList[6], cmdList[7], ":\tdecay channel(s), in ms. ie: 5\n\t",
+			cmdList[8], ":\ttoggle mirror setting\n\t",
+			cmdList[9], cmdList[10], ":\tstart or stop the current sequence\n\t",
+			cmdList[13], cmdList[14], cmdList[15], ":\t sequence Larson|Comet|Sparkles\n\t",
+			cmdList[11], cmdList[12], ":\tfadeaway via radiate|decay\n\t",
+			cmdList[16], ":\tset uniform baseline colour\n\t",
+			cmdList[17], ":\tset animation frame speed\n\t",
+			cmdList[18], ":\tdisplay all in-use global values\n\t",
+			"- - - - - - - - - - ",	cmdList[0], ":\tthis information.");
+		}
+		else if (strstr(rcvdChars, cmdList[1])) {
+			char* pC = strchr(rcvdChars,' ')+1;
+			// char C = rcvdChars[7];
+			char C = *pC;
+			if (C=='l' || C=='L' || C=='p' || C=='P') {
+				direction=_proximal;
+				if (Para.get(_mirror)) Para.set(_mirror);		//	 ->false
+			}
+			else if (C=='r' || C=='R' || C=='d' || C=='D') {
+				direction=_distal;
+				if (Para.get(_mirror)) Para.set(_mirror);		//	-->false
+			}
+			else if (C=='m' || C=='M') {
+				direction=_medial;
+				if (Para.get(_mirror)==false) Para.set(_mirror);		//	-->true
+			}
+			else if (C=='e' || C=='E') {
+				direction=_lateral;
+				if (Para.get(_mirror)==false) Para.set(_mirror);		//	-->true
+			}
+		}
+		else if (strstr(rcvdChars, cmdList[2]))		_pulseInterval=min(max(myarg,100),10000);
+		// else if (strstr(rcvdChars, cmdList[3]))			{
+		// 	_decayArrayRGBW[0]=myarg;	_decayArrayRGBW[1]=myarg;	_decayArrayRGBW[2]=myarg;	}
+		else if (strstr(rcvdChars, cmdList[3]))				decayRate.setRGB(myarg);	
+		else if (strstr(rcvdChars, cmdList[4]))				decayRate.setR(myarg);	//	_decayArrayRGBW[0]=myarg;
+		else if (strstr(rcvdChars, cmdList[5]))				decayRate.setG(myarg);	//	_decayArrayRGBW[1]=myarg;
+		else if (strstr(rcvdChars, cmdList[6]))				decayRate.setB(myarg);	//	_decayArrayRGBW[2]=myarg;
+		else if (strstr(rcvdChars, cmdList[7]))				decayRate.setW(myarg);	//	_decayArrayRGBW[3]=myarg;
+		else if (strstr(rcvdChars, cmdList[17]))			_decayTick(myarg);		//	fps
+		else if (strstr(rcvdChars, cmdList[8])) 			Para.set(_mirror);
+		else if (strstr(rcvdChars, cmdList[9])) 			Para.set(_start);
+		else if (strstr(rcvdChars, cmdList[10]))			Para.set(_stop);
+		else if (strstr(rcvdChars, cmdList[20]))			_priorityPixel=myarg;
+		else if (strstr(rcvdChars, cmdList[11]))			Para.set(radiate);
+		else if (strstr(rcvdChars, cmdList[12]))			Para.set(decay);
+		else if (strstr(rcvdChars, cmdList[13]))			{Para.set(larson); Para.set(decay);}
+		else if (strstr(rcvdChars, cmdList[14]))			{Para.set(comet); Para.set(decay);}
+		else if (strstr(rcvdChars, cmdList[15]))			{Para.set(sparkle); Para.set(decay);}
+		else if (strstr(rcvdChars, cmdList[16]))			{					//	new baseLine
+			byte newBL[4]{0,0,0,0};
+			int i{0};
+			while ((I != NULL) & (i<4)) {			//	r g b w
+				newBL[i++] = (byte)myarg;
+				I = strchr(I+1,' ');				//	delimiters are uniformly single spaces.
+				(I!=NULL) ? myarg=(byte)atoi(I) : myarg=0;
+			}
+			setBaselineColourFromRGBW(newBL[0], newBL[1], newBL[2], newBL[3]);
+		}
+		else if (strstr(rcvdChars, cmdList[19])) 			_baselineColour = gamma32(_baselineColour);
+		else if (strstr(rcvdChars, cmdList[21]))			Strip.setPixelColor(_priorityPixel,sunriseB);
+		else if (strstr(rcvdChars, cmdList[22])) 			Strip.setPixelColor(_priorityPixel,sunriseA);
+		else if (strstr(rcvdChars, cmdList[18]))			{
+			// dspl("\tdecay rates R G B W:", _decayArrayRGBW[0], _decayArrayRGBW[1], _decayArrayRGBW[2], _decayArrayRGBW[3], "ms.", "\tpause:", _pulseInterval, "\tmirror:", Para.get(_mirror)?"Y":"N", "\tsparkles:", Para.get(sparkle)?"Y":"N");
+			dspl("\tdecay rates R G B W:", decayRate.R, decayRate.G, decayRate.B, decayRate.W, "ms.", "\tpause:", _pulseInterval, "\tmirror:", Para.get(_mirror)?"Y":"N", "\tsparkles:", Para.get(sparkle)?"Y":"N");
+			Serial.print("\tbL.colour(0x");
+			Serial.print(_baselineColour,HEX);
+			Serial.print(")");
+			// Serial.println("\tbL.colour(0x%x)", _baselineColour);
+			dspl("\tvip:", _priorityPixel, "\tdir:", direction);
+			// dspl("\tcurrent mode:", Para.get(_stop)?"not running":Para.get(decay)?"baseline decay":Para.get(radiate)?"radiate":"", Para.get(comet)?"comet":Para.get(larson)?"larson":"\n");
+			dspl("\tcurrent mode:", Para.get(_stop)?"not-running":Para.get(comet)?"comet":Para.get(larson)?"larson":"X", Para.get(decay)?"baseline-decay":Para.get(radiate)?"radiate":"X");
+			dspl("    - - - - - - - - - - ");
+		}
+		else dspl("  --> type 'help' for cmd list.");
+		newCmd=false;
+	}
+}
+
+bool parse_delimiter(char CH) {
+	static char validChars[] {' ', ',', '_', '+', '&'};
+	for (int i = 0; i < (int)sizeof(validChars)-1; i++){
+		if (CH == validChars[i]) return true;
+	}
+	return false;
+}
+bool parse_eol(char CH) {
+	static char validChars[] {'\n', '\r', '>', ']', '\0'};
+	for (int i = 0; i< (int)sizeof(validChars)-1; i++){
+		if (CH == validChars[i]) return true;
+	}
+	return false;
+}
+
+void serialReceived() {
+	// ideal cmd strings look like "word 0123 \0" < end with one space, and a null (3)
+	//				(1)	no leading spaces^    ^single space (2)
+	static byte ndx{0};
+	char rc;
+	while (Serial.available() > 0 && newCmd == false) {
+		rc = Serial.read();
+		if (parse_eol(rc)==false) {
+			if (parse_delimiter(rc)) {
+				rc = ' ';		//	standardise delimiter to space char &#x20;
+				if (ndx==0) continue;		//	skip *initial* delimiters (1)
+				else if (rcvdChars[ndx-1] == rc) continue;		//	one is enough (2)
+			}	
+			rcvdChars[ndx++] = rc;			//	record this char
+			if (ndx >= numChars-1)	ndx = numChars-2;		//	truncate. reserve for padding.
+		}
+		else {
+			rcvdChars[ndx] = ' ';				//	PADDING	(3)
+			rcvdChars[ndx+1] = '\0';		//	terminate the string	(3)
+			if (ndx>0) {								//	empty strings get tossed
+				ndx = 0;
+				newCmd = true;				
+			}
+		}
+	}
+}
+
+/* String SendHTML(uint8_t led1stat,uint8_t led2stat) {
+	String ptr = "<!DOCTYPE html> <html>\n";
+	ptr +="<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, user-scalable=no\">\n";
+	ptr +="<title>Kitten Lights Control</title>\n";
+	ptr +="<style>html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center;}\n";
+	ptr +="body{margin-top: 50px;} h1 {color: #444444;margin: 50px auto 30px;} h3 {color: #444444;margin-bottom: 50px;}\n";
+	ptr +=".button {display: block;width: 80px;background-color: #1abc9c;border: none;color: white;padding: 13px 30px;text-decoration: none;font-size: 25px;margin: 0px auto 35px;cursor: pointer;border-radius: 4px;}\n";
+	ptr +=".button-on {background-color: #1abc9c;}\n";
+	ptr +=".button-on:active {background-color: #16a085;}\n";
+	ptr +=".button-off {background-color: #34495e;}\n";
+	ptr +=".button-off:active {background-color: #2c3e50;}\n";
+	ptr +="p {font-size: 14px;color: #888;margin-bottom: 10px;}\n";
+	ptr +="</style>\n";
+	ptr +="</head>\n";
+	ptr +="<body>\n";
+	ptr +="<h1>ESP8266 Web Server</h1>\n";
+	if (mode_STA) ptr +="<h3>Using Station(STA) Mode</h3>\n";
+	else ptr +="<h3>Using Access Point(AP) Mode</h3>\n";
+	
+	 if(led1stat)
+	{ptr +="<p>LED1 Status: ON</p><a class=\"button button-off\" href=\"/led1off\">OFF</a>\n";}
+	else
+	{ptr +="<p>LED1 Status: OFF</p><a class=\"button button-on\" href=\"/led1on\">ON</a>\n";}
+
+	if(led2stat)
+	{ptr +="<p>LED2 Status: ON</p><a class=\"button button-off\" href=\"/led2off\">OFF</a>\n";}
+	else
+	{ptr +="<p>LED2 Status: OFF</p><a class=\"button button-on\" href=\"/led2on\">ON</a>\n";}
+
+	ptr +="</body>\n";
+	ptr +="</html>\n";
+	return ptr;
+} */
+
+void Shift(int places, int startAt, int endAt) {
+	int _head, _tail, pp;
+	bool shifdn;
+	//	begin safety inspector
+	if (startAt<0	||	startAt>Strip.numPixels())			startAt	= Strip.numPixels();
+	if (endAt<0		||	endAt >Strip.numPixels())				endAt		= 0;
+	if (places==0	||	abs(places)>abs(startAt-endAt))	places	= 1;
+	//	begin direction finding
+	shifdn	=	(startAt>endAt);
+	_tail		=	(shifdn?min(startAt, endAt):max(startAt, endAt));
+	_head		=	(shifdn?max(startAt, endAt):min(startAt, endAt));
+	shifdn?places=abs(places):places=-abs(places);
+	pp			=	_tail+places;
+	//	begin shift all nominated array values by places 
+	while (shifdn?pp<=_head:pp>=_head) {
+		Strip.setPixelColor(pp-places, Strip.getPixelColor(pp));
+		shifdn?pp++:pp--;
+	}
+}
+
+uint8_t* _getSpecificLED_ptr(int LEDpixel_number) {
+	uint8_t* ptr = Strip.getPixels();
+	if (LEDpixel_number>0 && LEDpixel_number<=Strip.numPixels()) ptr += (LEDpixel_number*4);
+	return ptr;
+}
+void _pixelDecay(int led) {
+	//	baseline decay against ONE led.
+	uint8_t* Ptr = _getSpecificLED_ptr(led);
+	uint8_t* basln_B = (uint8_t*)&_baselineColour;
+ 	for (int ch = 0; ch < 4; ch++) {
+		int dAmt = _decayArrayRGBW[dumb[ch]]; 		//	0xwwbbrrgg
+		// T: 1.87 µs.
+		if (dAmt==0) continue;
+		else if (Ptr[ch]>basln_B[ch])	Ptr[ch] = max( (int)basln_B[ch], (Ptr[ch]- dAmt));
+		else if (Ptr[ch]<basln_B[ch])	Ptr[ch] = min( (int)basln_B[ch], (Ptr[ch]+ dAmt));
+		else													Ptr[ch] = basln_B[ch];
+		// T: 2.02 µs.  Neater but slower.  I leave it here for it's explanatory context.
+		// while (Ptr[ch]>basln_B[ch] && dAmt>0) {Ptr[ch]--; dAmt--;}
+		// while (Ptr[ch]<basln_B[ch] && dAmt>0) {Ptr[ch]++; dAmt--;}
+	}
+}
+void Radiate() {
+	// copy the centre LED value gradually to the head/tail ends
+	int midway = Strip.numPixels()/2;
+	Shift(1, midway, 0);
+	Shift(1, midway, Strip.numPixels());
+	_pixelDecay(midway);
+}
+void baselineDecay() {
+	//	if the decayArray is all zeros, don't waste time when no changes will be made. 
+	uint32_t* SUM = (uint32_t*) &_decayArrayRGBW;
+	if (*SUM==0) return;
+	// begin baselineDecay loop
+	for (int i = 0; i < Strip.numPixels(); i++) {
+		_pixelDecay(i);
+	}
+}
+
+void Cursor(byte pix, uint32_t colour, int width) {
+	int W = width/2;
+	Strip.setPixelColor(pix, colour);
+	uint32_t gC = gamma32(colour);
+	for (int i = 1; i<=W; i++){
+		Strip.setPixelColor(pix+i, gC);
+		Strip.setPixelColor(pix-i, gC);
+		gC = gamma32(gC);
+	}	
+}
+void Cursor_run(byte pixFrom, byte pixTo, uint32_t colour) {
+	int i = min(pixFrom, pixTo);
+	int j = max(pixFrom, pixTo);
+	while (i<j) {
+		Strip.setPixelColor(++i, colour);
+	}
+}
+int CometTail(uint32_t colA) {
+	// T:6250µS
+	// if (timeout < millis()) {
+	if (Timeout.expired()) {
+		int p_from, p_to;
+		switch (direction) {
+			case (_distal)	:	{p_from=Strip.numPixels(); p_to=0;	}		break;
+			case (_medial)	:	{p_from=(int)Strip.numPixels()/2; p_to=Strip.numPixels();	}		break;
+			default :		//		intentional fall through
+			case (_proximal) : {p_from=0; p_to=Strip.numPixels();	}		break;
+		}
+		int maximum = abs(p_to-p_from);
+		Timeout.set(risingHalfSineWave(shortestDelay, longestDelay, step, maximum));
+		if (step==0) Strip.setPixelColor(p_from, colA);
+		else {
+			Strip.setPixelColor(p_from +step, (colA));
+			if (Para.get(_mirror)) Strip.setPixelColor(Strip.numPixels() -(p_from +step), (colA));
+		}
+		(p_from<p_to) ? step++ : step--;
+		if (abs(step) > maximum) {
+			step = 0;
+			Timeout.add(_pulseInterval);
+		}
+		return step;
+	}
+	return 0;
+}
+
+void Sparkles(uint32_t Pop) {
+	int R = random(0,150);
+	//bitwise OR addition of Pop colour to existing pixel colour
+	Strip.setPixelColor(R, Strip.getPixelColor(R)|Pop);
+}
+
+void LarsonScan(uint32_t colA, int width) {
+	// T:
+	static bool swing{false};
+	int p_mid=(Strip.numPixels()/2)-width;
+	int p_high=Strip.numPixels()-width;
+	int p_low{0};
+	if (Timeout.expired()) {
+		Timeout.set(halfCircle(p_mid, step, true));
+		// int w{0};
+		// while (w<width) {
+		// 	Strip.setPixelColor(step+w, colA);
+		// 	w++;
+		// }
+		Cursor(step, colA, width);
+		if (step>=(p_high) || step<=(p_low)) 	swing= !swing;
+		(swing)?step++:step--;
+	}
+}
+
+void followMe() {
+	int wiggle = Cal.testStability(RemoteXY.pitch, RemoteXY.roll, RemoteXY.yaw);
+	if (wiggle) dspl("\nwiggle = ", wiggle);
+	else Serial.print('.');
+	if (wiggle>450) CometTail(0x00660000);
+	else if (wiggle>300) CometTail(0x22440000);
+	else if (wiggle>150) CometTail(0x44440000);
+	else if (wiggle>75)  CometTail(0x44220000);
+	else if (wiggle>0)   CometTail(0x66000000);
+	else CometTail(0);
+}
+
+int cpuCycles(void (*fPoint)(void)) {
+	int iter = 1000;
+	uint32_t T = micros();
+	float T2;
+	for (int i = 0; i<iter; i++) {
+			fPoint();
+	}
+	T2=micros()-T;
+	dspl("T:", T2/iter, "µs.");
+	return T2/iter;
+}
+void  cpuCycles() {
+	int iter = 100000;
+	uint32_t Tu = micros();
+	uint32_t Tm = millis();
+	float Tu2;
+	float Tm2;
+	int v=0;
+	for (int i = 0; i<iter; i++) {
+			_pixelDecay(v);
+			v<Strip.numPixels()?v++:v=0;
+	}
+	Tm2=millis()-Tm;
+	Tu2=micros()-Tu;
+	dspl("T:", Tu2/iter, "µs.", Tm2/iter, "ms.");
+	return;
+}
+
+void setup() {
+	Serial.begin(115200); delay(250);
+	pinMode(onboard_led.pin, OUTPUT);
+	pinMode(button.pin, INPUT);
+	pinMode(ledR.pin, OUTPUT);
+	pinMode(ledG.pin, OUTPUT);
+	pinMode(ledB.pin, OUTPUT);
+	initLittleFS();
+	uint32_t Delay = millis()+250;
+	while (millis()<Delay)	button.read();
+		//	if button held during poweron, esp enters mode ~~WiFi AP~~ RemoteXY instead of WiFi-STA
+	if (!button.held(100)) {
+		mode_STA=false;
+		mode_remoteXY=true;
+		ERR_CODE_ptr = "xy";
+		RemoteXY_Init (); 
+		ERR_CODE_ptr = "r    ";
+	}
+	else {
+		// mode_remoteXY=true;
+		ERR_CODE_ptr = "wf";
+		Init_WiFiMode(true);			//	wifi and IP address
+		initWebServer();			delay(100);
+		initWebSocket();			delay(100);
+	// Init_ServerCmds();				//	list of f() callbacks
+		ERR_CODE_ptr = "e    ";
+	}
+	Strip.begin();						//	INITIALIZE NeoPixel object
+	Strip.clear();						//	clear led array
+	Para.set(decay);
+	
+}		//		- = - = - = - = - E N D   s e t u p ( ) - = - = - = - = - 
+
+void loop() {	
+	// server.handleClient();	//	old method where html was served in-script
+	if (mode_remoteXY==false)	{
+		if (mode_STA) 	ws.cleanupClients();		//	websocket
+		MDNS.update();													//	allows for http://kittenlights.local style url
+	}		//	END if
+	if (mode_remoteXY) {
+		RemoteXY_Handler ();										//	allows android RemoteXY app
+		if (RemoteXY.connect_flag)	handleRemoteXY();
+	}
+	serialReceived();													//	accept serial cmd input
+	handleCLI();															//	process serial cmd input
+	
+	if (Para.get(_start)) {
+		if (Para.get(comet)) 	CometTail(Strip.Color(random(0x40,0xf0), random(0x40,0xf0), random(0x40,0xf0), random(0x00,0x10)));
+		else if (Para.get(larson)) 	LarsonScan(sunsetA, _priorityPixel);
+	}
+	else {
+		if (Para.get(sparkle) && (random(0,1000)<1)) {
+			Sparkles(0x6f000000);	Sparkles(0x006f6f6f);	}		
+	}
+	
+	if (_decayTick()) {
+		Strip.show();				//	this should be the *only* time Strip.show() is called. 
+		if (Para.get(decay)) baselineDecay();		//	to disable set _dRGB/W to 0.
+		else if (Para.get(radiate)) Radiate();
+		yield();		//	specific to esp32 and 8266 to have time to do its own utility overheads (ie: wifi)
+	}
+	doLeds();
+	
+}		//		- = - = - = - = - E N D   l o o p ( ) - = - = - = - = - 
+

@@ -40,8 +40,8 @@ private:
 
 public:
 	// char elementbuffer[6];
-	void set_dWPM(int);		//	set new wpm value using PARIS method
-	void set_fWPM(int);		//	set custom Farnsworth wpm value.
+	void set_dWPM(int);		//	Add new wpm value using PARIS method
+	void set_fWPM(int);		//	Add custom Farnsworth wpm value.
 	bool iterate(const char* array);
 
 	~morseEncoder(void);
