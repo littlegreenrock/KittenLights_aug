@@ -27,7 +27,7 @@ const uint8_t g_table[256] = {			// 2.2
 	};
 const uint8_t l_table[256] = {
 //			0			1			2			3			4			5			6			7			8			9			a			b			c			d			e			f
-			0x0e,	0x19,	0x1f,	0x24,	0x28,	0x2c,	0x30,	0x33, 0x36, 0x39, 0x3b,	0x3e, 0x40, 0x43, 0x45, 0x47,	//	0
+			0x09,	0x14,	0x1c,	0x22,	0x28,	0x2c,	0x30,	0x33, 0x36, 0x39, 0x3b,	0x3e, 0x40, 0x43, 0x45, 0x47,	//	0
 			0x49, 0x4b, 0x4d, 0x4f, 0x51, 0x52, 0x54, 0x56, 0x57, 0x59, 0x5b, 0x5c, 0x5e, 0x5f, 0x61, 0x62,	//	1
 			0x63, 0x65, 0x66, 0x68, 0x69, 0x6a, 0x6b, 0x6d, 0x6e, 0x6f, 0x70, 0x72, 0x73, 0x74, 0x75, 0x76,	//	2
 			0x77, 0x79, 0x7a, 0x7b, 0x7c, 0x7d, 0x7e, 0x7f, 0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, //	3
@@ -50,42 +50,89 @@ enum animationDirection: byte {
 	_static, _proximal, _distal, _lateral, _medial,
 };
 
-enum CCh: byte  {
-		//	Cch : Colour Channels.  aligned with byte position
-	Blue	= 0,	Green	= 1,	Red		= 2,	White	= 3, 
-	bb		= 0,	gg		= 1,	rr		= 2,	ww		= 3, 
-		//	functional. 
-	RGB		= 0x12,	RGBW	= 0x13,
-};
-
 //const byte NEOPixelChannelOrder[4];		//	0bWWRRGGBB  = NEO_GRBW
 
-struct cch_t {
-	CCh Chan;
-	// pre inc
-	cch_t& operator++() {
-		Chan = (CCh)min(3,int(Chan)+1);
-		return *this;
-	}
-	//	post inc
-	const cch_t operator++(int) {
-		cch_t tmp(*this);
-				++(*this);
-				return tmp;
-	}
-	//	pre dec
-	cch_t& operator--() {
-		Chan = (CCh)max(0,int(Chan)-1);
-		return *this;
-	}
-	//	post dec
-	const cch_t operator--(int) {
-		cch_t tmp(*this);
-				--(*this);
-				return tmp;
-	}
+
+class baselinebyte {
+public:
+uint32_t baselineColour;
+byte* const blc_pt = (byte*)&baselineColour;
+
 
 };
+
+
+class Numb {
+public:
+	Numb() {}
+	Numb(int x) : Val{byte(x)} {}
+
+	Numb& operator +=(const Numb& right) {
+		this->Val = min(0xff, ((int)this->Val + right.Val));
+		return *this;
+	}
+	Numb& operator -=(const Numb& right) {
+		this->Val = max(0x00, (this->Val - right.Val));
+		return *this;
+	}
+	Numb& operator ++() {		// prefix
+			Val<0xff?++Val:Val=0xff;
+			return *this;
+	}
+	Numb operator ++(int unused) {		// postfix
+			Numb result = *this;
+			Val<0xff?++Val:Val=0xff;
+			return result;
+	}
+	Numb& operator --() {		// prefix
+			Val>0x00?--Val:Val=0x00;
+			return *this;
+	}
+	Numb operator --(int unused) {		// postfix
+			Numb result = *this;
+			Val>0x00?--Val:Val=0x00;
+			return result;
+	}
+	bool operator ==(const Numb& right)	{
+		return (this->Val == right.Val);
+	}
+	bool operator ==(const auto& right)	{
+		return (this->Val == right);
+	}
+	bool operator !=(const Numb& right)	{
+		return (this->Val != right.Val);
+	}
+	bool operator !=(const auto& right)	{
+		return (this->Val != right);
+	}
+	bool operator >(const auto& right)	{
+		return (int(this->Val) > int(right));
+	}
+	bool operator <(const auto& right)	{
+		return (int(this->Val) < int(right));
+	}
+	bool operator >=(const auto& right)	{
+		return (int(this->Val) >= int(right));
+	}
+	bool operator <=(const auto& right)	{
+		return (int(this->Val) <= int(right));
+	}
+	byte Lin() {
+		return l_table[Val];
+	}
+	byte Lin(int lbl, bool Higher) {
+		return g_table[(byte(int(l_table[Val] + (Higher?-lbl:lbl))))];
+	}
+	byte Gam() {
+		return g_table[Val];
+	}
+	byte pnt() {
+		return Val;
+	}
+private:
+	byte Val;
+};
+
 
 enum illumination: uint8_t 
 {
@@ -99,7 +146,7 @@ enum illumination: uint8_t
 
 struct timeout_t {
 	uint32_t time{0};
-	void More(int _ms) {
+	void Plus(int _ms) {
 		time += _ms;	}
 	void Add(int _ms) {
 		time = millis() + _ms;	}
@@ -160,132 +207,98 @@ struct Button_t {
 	}
 };
 
-struct decayChan8_t {
-	float lbl{4};
-	int _dTime{850};
 
-	void setDecayPeriod(int newValue, const int fps) {
-		int compare = max(20, newValue);
-		if (compare != _dTime) {
-			_dTime = compare;
-			_calcLBL(fps);
-		}
-	}
+
+struct decayChan8_t {
+	byte LBLpFrame[3];
 	
-	void _calcLBL(const int fps) {
-		float denominator = fps * (float)(_dTime/1000);
-			if ((denominator<=0)) denominator = 1.0;
-			lbl = float(256.0 / denominator);
-		}
+	void calcLinearBrightnessLevels(int _decayTime, const int fps) {
+		int nFrames = fps * (_decayTime/1000);
+		float LpFr = 256/ nFrames;
+		LBLpFrame[0] = byte(LpFr + 0.5);
+		LBLpFrame[1] = byte((LpFr * 2)+0.5)-LBLpFrame[0];
+		LBLpFrame[2] = byte((LpFr * 3)+0.5)-LBLpFrame[0]-LBLpFrame[1];
+	}
 };
 
-
-struct decayColour32_t {
+class decayColour32_t {
 		decayChan8_t dChannel[4];
-		timeout_t _decayClock;
+		int _decayTime[4];
 		int _fps{40};
-		
-		bool tick(){
-			if (_decayClock.Expired()) {
-				_decayClock.Add(int(1000/_fps)) ;
+		uint32_t _time{0};
+		int _timeFrame[3];
+		byte f;
+
+	public:
+		bool Tik(){
+			if (millis() - _timeFrame[f] >= _time) {
+				if (++f > 2) {
+					f=0;
+					_time=millis();
+				}
 				return true;
 			}
 			return false;
 		}
-		bool isZero()	{
-			return (dChannel[0].lbl+dChannel[1].lbl+dChannel[2].lbl+dChannel[3].lbl == 0);
+
+		void setFPS(int newFPS) {
+			_fps = constrain(newFPS, 10, 120);
+			for (f=1; f<4; f++) {	_timeFrame[f-1] = ((f*1000)/_fps) +0.5;	}
+			f=0;		//	reuse of f here is to ensure f is reset after such a large change 
 		}
-		int FPS() {
-			return _fps;
+
+		void updateChannels()	{
+			for (int ch = 0; ch<4; ch++){
+				dChannel[ch].calcLinearBrightnessLevels(_decayTime[ch], _fps);
+			}
 		}
-		void changeFPS(int newFPS) {
-			newFPS = constrain(newFPS, 1, 120);
-			if(_fps != newFPS) {
-				_fps=newFPS;
-				for (int i=0; i<4; i++) {
-					dChannel[i]._calcLBL(_fps);
+		void Decay(byte* &Pixbyte, const uint32_t &baseline) {
+			byte* const blbyte = (byte*)&baseline;
+			byte dummy = Pixbyte[0];
+			for (int ch=0; ch<4; ch++) {
+				int T;
+				bool H = Pixbyte[ch] > blbyte[ch];
+				bool L = Pixbyte[ch] < blbyte[ch];
+				if (H) {
+					T = l_table[Pixbyte[ch]] -dChannel[ch].LBLpFrame[f];
+					T = max(g_table[T], blbyte[ch]);
 				}
+				else if (L) {
+					T = l_table[Pixbyte[ch]] +dChannel[ch].LBLpFrame[f];
+					T = min(g_table[T], blbyte[ch]);
+				}
+				else T = blbyte[ch];
+				Pixbyte[ch] = (byte)T;
 			}
+			if (++f >2) f=0;
+			if (f==0) Serial.printf("\t[%2x - %2x]", dummy, Pixbyte[0]);
 		}
-		void setDecayChannel(CCh channelName, int _ms)	{
-			int j{int(channelName)& 0x03};
-			int i{0};
-			if (channelName < 4) i=int(channelName);
-			while (i <= j) {
-				dChannel[i].setDecayPeriod(_ms, _fps);	
-			}
-		}
-		float get(CCh channelName) {
-			return dChannel[int(channelName) & 0x03].lbl;
-		}
-		uint8_t decay(uint8_t unknownPix, uint8_t targetValue, float lbl) {
-			//	Give LED brightness component, baseline target, and linear 
-			//		brightness level (lbl) decay value.
-			//	Returns 1 frame post-decay LED brightness component.
-			bool HI = (unknownPix > targetValue);
-			// uint8_t newValue = gamma8(_findLinearIndex(unknownPix) + (HI? -lbl : lbl)) ;
-			uint8_t newValue = _findLinearIndex(unknownPix);
-			HI?newValue-=lbl:newValue+=lbl;
-			newValue = gamma8(newValue);
-			if (millis() % 1000 ==1) {
-				Serial.print(unknownPix,HEX);
-				Serial.print(" : ");
-				Serial.print(targetValue,HEX);
-				Serial.print(" : ");
-				Serial.print(lbl);
-				Serial.print(" : ");
-				Serial.println(newValue,HEX);
-			}
-			if (HI) return max(newValue,targetValue);
-			else return min(newValue, targetValue);
-		}
-
-		uint32_t decay(uint32_t unknownColour, uint32_t targetColour) {
-			//	Give NeoPix colour and baseline colour.
-			//	Returns 1 frame post-decay NeoPix colour.
-			uint32_t newColour32{0x0};
-			uint8_t* unkC_p = (uint8_t*)&unknownColour;
-			uint8_t* tgtC_p = (uint8_t*)&targetColour;
-			uint8_t* newC_p = (uint8_t*)&newColour32;
-			for (int i = 0; i<4; i++) {
-				newC_p[i] = decay(unkC_p[i], tgtC_p[i], dChannel[i].lbl);
-			}
-			if (millis() % 1000 ==1) {
-				Serial.print(unknownColour,HEX);
-				Serial.print(" - ");
-				Serial.print(targetColour,HEX);
-				Serial.print(" - ");
-				Serial.println(newColour32,HEX);
-				Serial.println();
-			}
-			return newColour32;
-		}
-
-	
-		int _reverseLookupLoop(byte lookup, int j) {
-			while (lookup < g_table[j]) { j--; }
-			return j;		//	returns index of value in array closest to lookup
-		}
-
-		byte _findLinearIndex(byte lookup) {
-			/* quick determine which third lookup value can be found, now we only need to 
-				compare up to 85 values, rather than 255. round 1, is lookup in the early third?
-				round 2, is lookup in the 2nd third? round 3, late third? search everything from 
-				the last value down. round 4 is an error condition, returns 0.  */
-			int _thirdPlace = 85;
-			int LI = g_table[_thirdPlace]; 
-			while (_thirdPlace < 256 && lookup >= LI) {
-				_thirdPlace+=85;
-				if (_thirdPlace > 255) {
-					LI = 0; return LI; break;	}
-				LI = g_table[_thirdPlace];
-			}		//	END loop
-			LI = _reverseLookupLoop(lookup, _thirdPlace);
-			LI = (byte)min(255,max(0,LI));		//	ensure LI stays within byte range.
-			return LI;
-		}
-
 };
+
+
+int _reverseLookupLoop(byte lookup, int j) {
+	while (lookup < g_table[j]) { j--; }
+	return j;		//	returns index of value in array closest to lookup
+}
+
+byte _findLinearIndex(byte lookup) {
+	/* quick determine which third lookup value can be found, now we only need to 
+		compare up to 85 values, rather than 255. round 1, is lookup in the early third?
+		round 2, is lookup in the 2nd third? round 3, late third? search everything from 
+		the last value down. round 4 is an error condition, returns 0.  */
+	int _thirdPlace = 85;
+	int LI = g_table[_thirdPlace]; 
+	while (_thirdPlace < 256 && lookup >= LI) {
+		_thirdPlace+=85;
+		if (_thirdPlace > 255) {
+			LI = 0; return LI; break;	}
+		LI = g_table[_thirdPlace];
+	}		//	END loop
+	LI = _reverseLookupLoop(lookup, _thirdPlace);
+	LI = (byte)min(255,max(0,LI));		//	ensure LI stays within byte range.
+	return LI;
+}
+
 
 struct ddd_t {
 	int _orientation[3] {0};
@@ -317,99 +330,6 @@ struct ddd_t {
 	int r() {	return _orientation[1];	}
 	int y() {	return _orientation[2];	}
 };
-
-// struct new_decayRate_t {
-	/*		decay rate is defined as ms delay between full and zero led illumination;
-			to traverse 255 linear-levels of brightness.  Higher numbers take longer
-			to fade. Requires frame rate (fps) and access to gamma algorithm.
-	*/
-/* 
-
-	int dTime_ch[4];		//	given ms decay time per channel
-	float LBL[4];				//	calculated Linear-Brightness-Levels per frame
-
-	int _reverseLookupLoop(byte lookup, int j) {
-		while (lookup < g_table[j]) { j--; }
-		return j;		//	returns index
-	}
-
-	byte _findLinearIndex(byte lookup) {
-		// quick determine which third lookup value can be found, now we only need to 
-		// compare up to 85 values, rather than 255.
-		int R;
-		if (lookup < g_table[85]) {
-			// lowest one-third of values
-			R = _reverseLookupLoop(lookup, 85);
-		}
-		else if (lookup < g_table[170]) {
-			// middle third of values
-			R = _reverseLookupLoop(lookup, 170);
-		}
-			// highest third.
-		else R = _reverseLookupLoop(lookup, 255);
-		R = (byte)min(255,max(0,R));		//	ensure R stays within byte range.
-		return R;
-	}
-	void _calcLBL_values() {
-		for (int ch = 0; ch< 4; ch++) {
-			float denominator = fps * (float)(dTime_ch[ch]/1000);
-			if ((denominator>0) == false) denominator = 1;
-			LBL[ch] = float(256.0 / denominator);
-		}
-	}
-public:
-	unsigned int fps{40};
-
-	byte getDecay(colCh chan) {
-		return dTime_ch[int(chan)];
-	}
-	void setDecay(byte value, colCh channelCode) {
-		int i=0;
-		int j = int(channelCode);
-		switch (channelCode) {
-			case rr :
-			case gg :
-			case bb :
-			case ww : i = j; break;
-			case rgb:	j = 2; break;
-			case rgbw : j = 3; break;
-			default : break;
-		}
-		for (; i <= j; i++) {
-			dTime_ch[i] = value;
-		}	
-		_calcLBL_values();
-	}
-	byte decay(byte unknownPix, byte targetValue, float* lbl) {
-		//	first, try to shortcut the process.  Near enough is good enough,
-		//	and you won't notice the difference anyway ;)
-		if (abs(unknownPix-targetValue)<2) return targetValue;
-		//	is unknown above or below the target value?
-		bool HI = (unknownPix > targetValue);
-		byte newValue = _findLinearIndex(unknownPix) + (HI? -*lbl : *lbl) ;
-		if (HI) return max(newValue,targetValue);
-		else return min(newValue, targetValue);
-	}
-	uint32_t decay(uint32_t unknownColour, uint32_t targetColour) {
-		uint32_t newColour{0};
-		byte* uCp = (byte*)&unknownColour;
-		byte* tColp = (byte*)&targetColour;
-		byte* nCp = (byte*)&newColour;
-		for (int i = 0; i<4; i++) {
-			nCp[i] = decay(uCp[i], tColp[i], &LBL[NEOPixelChannelOrder[i]]);
-		}
-		return newColour;
-		// for (int i = 0; i< 4; i++) {
-		// 	byte uC = unknownColour>>(i*4) & 0x000000ff;
-		// 	byte tC = targetColour>>(i*4) & 0x000000ff;
-		// 	byte nC = decay(uC, tC);
-		// 	newColour<<=(i*4);
-		// 	newColour&=nC;
-		// }
-		// return newColour;
-	}
-}; 
-*/
 
 struct commsMode_t { 
 	uint8_t bitMap8{};

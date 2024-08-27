@@ -10,6 +10,13 @@
 		"functional": "cpp",
 		"tuple": "cpp",
 		"utility": "cpp",
-		"variant": "cpp"
+		"variant": "cpp",
+		"unordered_map": "cpp",
+		"vector": "cpp",
+		"exception": "cpp",
+		"random": "cpp",
+		"initializer_list": "cpp",
+		"new": "cpp",
+		"type_traits": "cpp"
 	}
 }

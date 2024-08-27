@@ -145,45 +145,23 @@ bool baselineDecay(bool Enable) {
 		we update the LED strip. Second, we implement a decay routine on the array.
 	*/
 	//	check for fps tick
-	if (DK.tick()==false) return false;
+	if (DK.Tik()==false) return false;
 	else {
 		//	this is the *only* time strip.show() is called.
 		Strip.show();
 		//	checkpoints: configuration, & decay rate is not zero.
-		if (Enable) { // && (DK.isZero()==false)) {
-			int count{0};
-			float lbl[4] = {6.0, 6.0, 6.0, 6.0};
-			byte* channel = Strip.getPixels();
-			// byte* blByte = (uint8_t*)&_baselineColour;
-			byte blByte[4] = {0xff, 0x00, 0x10, 0x00}; // 0123 _R_B
-			// uint8_t MYDECAY = 0x00000001;
-			// byte* blByte = (uint8_t*)&MYDECAY;
-			int LI{0};
-			int four=0;
-			byte PixByte;
-			while (count < LED_numBytes) {
-				LI = 255;
-				PixByte = *channel;
-				// bool HI = (*channel > blByte[four]);
-				bool HI = (PixByte >= blByte[four]);
-				bool LO = (PixByte <= blByte[four]);
-				if (LO != HI) {
-					PixByte = gamma8(int(l_table[PixByte] + (HI? -lbl[four] : lbl[four])));
-					if (HI && (PixByte < blByte[four])) *channel = PixByte;
-					if ((!HI) && (PixByte > blByte[four])) *channel = PixByte;
-					else *channel = blByte[four];
-
-				}
-				// while ((LI > 0) && (*channel < g_table[LI])) {
-				// while ((LI > 0) && (g_table[LI] >= PixByte)) {
-					// LI--;
-				// }
-				// LI = LI + (HI? -lbl[four] : lbl[four]);
-				// PixByte = gamma8(LI);
-				channel++;
-				count++;
-				if (++four > 3) four = 0;
-			}		//	END while
+		if (Enable) {
+			int LED_bytes_Counter = 0;
+			byte* PixBytePointer = Strip.getPixels();
+			byte baselineByte[4] = {0x00, 0x00, 0xff, 0x00}; // 0123 GR_B
+			
+			while (LED_bytes_Counter < Strip.numPixels()) {
+				if (LED_bytes_Counter>9 && LED_bytes_Counter<16)	Serial.printf("%3i :\tpCol %2x %2x %2x %2x, ", LED_bytes_Counter, PixBytePointer[0], PixBytePointer[1], PixBytePointer[2], PixBytePointer[3]);
+				DK.Decay(PixBytePointer, _baselineColour);
+				if (LED_bytes_Counter>9 && LED_bytes_Counter<16)	Serial.printf("%2x %2x %2x %2x\n", PixBytePointer[0], PixBytePointer[1], PixBytePointer[2], PixBytePointer[3]);
+				PixBytePointer+=4;
+				LED_bytes_Counter++;			//	inc loop count
+			}		//	END while 
 		}		//	END if
 	}
 	return true;
@@ -214,7 +192,7 @@ void setup() {
 	Strip.setPixelColor(16,0xff000000);	
 	Strip.show();
 	delay(2000);
-	DK.changeFPS(50);
+	DK.setFPS(40);
 	Timeout.Add(2000);
 	// DK.setDecayChannel(RGBW, 850);
 
@@ -224,9 +202,9 @@ void setup() {
 void loop() {
 	uint32_t SadColour;
 	if (Timeout.Expired())	{
-		Timeout.Add(3000);
-		SadColour = (random(0x00,0xff) << 16) + random(0x00,0xff);
-		dspl(SadColour);
+		Timeout.Add(5000);
+		SadColour = (random(0x00,0xff) << 16) + (random(0x00,0xff) << 8) + random(0x00,0xff);
+		Serial.printf("%#010x\n", SadColour);
 		for (int l=0; l<150; l++) {
 			Strip.setPixelColor(l, SadColour);
 		}
