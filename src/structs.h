@@ -27,7 +27,7 @@ const uint8_t g_table[256] = {			// 2.2
 	};
 const uint8_t l_table[256] = {
 //			0			1			2			3			4			5			6			7			8			9			a			b			c			d			e			f
-			0x09,	0x14,	0x1c,	0x22,	0x28,	0x2c,	0x30,	0x33, 0x36, 0x39, 0x3b,	0x3e, 0x40, 0x43, 0x45, 0x47,	//	0
+			0x07,	0x13,	0x1c,	0x22,	0x26,	0x2a,	0x2e,	0x32, 0x35, 0x38, 0x3a,	0x3d, 0x40, 0x42, 0x45, 0x47,	//	0
 			0x49, 0x4b, 0x4d, 0x4f, 0x51, 0x52, 0x54, 0x56, 0x57, 0x59, 0x5b, 0x5c, 0x5e, 0x5f, 0x61, 0x62,	//	1
 			0x63, 0x65, 0x66, 0x68, 0x69, 0x6a, 0x6b, 0x6d, 0x6e, 0x6f, 0x70, 0x72, 0x73, 0x74, 0x75, 0x76,	//	2
 			0x77, 0x79, 0x7a, 0x7b, 0x7c, 0x7d, 0x7e, 0x7f, 0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, //	3
@@ -146,14 +146,18 @@ enum illumination: uint8_t
 
 struct timeout_t {
 	uint32_t time{0};
-	void Plus(int _ms) {
+	void Extend(int _ms) {
 		time += _ms;	}
-	void Add(int _ms) {
+	void Next(int _ms) {
 		time = millis() + _ms;	}
 	bool Valid() {
 		return (time > millis());	}
-	bool Expired() {
-		return (time <= millis());	}
+	bool CheckPoint(int _ms) {
+		if (Valid()==false) {
+			this->Next(_ms);
+			return true;
+		}
+		return false;	}
 };
 
 struct Led_t {
@@ -210,102 +214,146 @@ struct Button_t {
 
 
 struct decayChan8_t {
-	byte LBLpFrame[3];
-	
+	byte LBLpFrame[3]{0};
 	void calcLinearBrightnessLevels(int _decayTime, const int fps) {
-		int nFrames = fps * (_decayTime/1000);
-		float LpFr = 256/ nFrames;
-		LBLpFrame[0] = byte(LpFr + 0.5);
-		LBLpFrame[1] = byte((LpFr * 2)+0.5)-LBLpFrame[0];
-		LBLpFrame[2] = byte((LpFr * 3)+0.5)-LBLpFrame[0]-LBLpFrame[1];
+		float nFrames = max((float)1.0, (float)fps * (float)_decayTime / 1000);
+		float LpFr = 256 / nFrames;
+		LBLpFrame[0] = byte((LpFr * 1) +0.5);
+		LBLpFrame[1] = byte((LpFr * 2) +0.5) -LBLpFrame[0];
+		LBLpFrame[2] = byte((LpFr * 3) +0.5) -LBLpFrame[0] -LBLpFrame[1];
+		// if (DEBUG) Serial.printf("%i, %i, %i, \n", LBLpFrame[0],LBLpFrame[1],LBLpFrame[2]);
 	}
 };
 
 class decayColour32_t {
+	public:
+		bool Tick() ;
+		void setFPS(int) ;
+		void updateChannels() ;
+		void setDecaytime(int, uint8_t) ;
+		uint32_t Decay(uint32_t , uint32_t ) ;
+		void Begin(int, int ) ;
+
+	private:
 		decayChan8_t dChannel[4];
-		int _decayTime[4];
+		int _indvlChannelDecayTime[4]{400};
 		int _fps{40};
 		uint32_t _time{0};
-		int _timeFrame[3];
-		byte f;
+		int _tickTimeSteps[3];
+		byte f{0};
+		void _updateChannel(int ) ;
 
-	public:
-		bool Tik(){
-			if (millis() - _timeFrame[f] >= _time) {
-				if (++f > 2) {
-					f=0;
-					_time=millis();
-				}
-				return true;
+};		//		END class decay_colour32_t
+
+	void decayColour32_t::Begin(int fps, int decayTime) {
+		setFPS(fps);
+		setDecaytime(decayTime, 5);
+	}
+
+/*		This tick is different than timeout_t.  Since we're ticking based off
+	fps/1000, rather than X ms., we will never have accurate integral incremental steps. So
+	a needless way to improve this is to calculate 2 additional ms tick steps. Tick()
+	now compares millis() - tickTimeStep(f) against the last stored millis(). After the 3rd 
+	step (f==2) a fresh millis() is stored in _time. This prevents using floating point and 
+	rounding errors, improving tick accuracy.  This is notably observed when using high 
+	fps values (60+) and high decay times (>2000ms). This correction measurably improves
+	tick accuracy by 2ms / 100ms (2%) without the need for constant floating point use.
+*/
+	bool decayColour32_t::Tick(){
+		if ((_fps > 5) && (millis() - _tickTimeSteps[f]) >= _time) {
+			if (++f > 2) {	_time=millis();	f=0;	}
+			return true;
 			}
-			return false;
-		}
+		return false;
+	}
 
-		void setFPS(int newFPS) {
-			_fps = constrain(newFPS, 10, 120);
-			for (f=1; f<4; f++) {	_timeFrame[f-1] = ((f*1000)/_fps) +0.5;	}
-			f=0;		//	reuse of f here is to ensure f is reset after such a large change 
-		}
+	void decayColour32_t::setFPS(int newFPS) {
+		_fps = constrain(newFPS, 10, 120);
+		f=0; _time=millis();
+		// re-calc tick time steps
+		for (int n=1; n<4; n++) {	
+			_tickTimeSteps[n-1] = ((n*1000)/_fps) +0.5;	}
+		updateChannels();
+	}
 
-		void updateChannels()	{
-			for (int ch = 0; ch<4; ch++){
-				dChannel[ch].calcLinearBrightnessLevels(_decayTime[ch], _fps);
-			}
+	void decayColour32_t::updateChannels() {
+		for (int ch = 0; ch<4; ch++){
+			_updateChannel(ch);
 		}
-		void Decay(byte* &Pixbyte, const uint32_t &baseline) {
-			byte* const blbyte = (byte*)&baseline;
-			byte dummy = Pixbyte[0];
-			for (int ch=0; ch<4; ch++) {
-				int T;
-				bool H = Pixbyte[ch] > blbyte[ch];
-				bool L = Pixbyte[ch] < blbyte[ch];
-				if (H) {
-					T = l_table[Pixbyte[ch]] -dChannel[ch].LBLpFrame[f];
-					T = max(g_table[T], blbyte[ch]);
+	}
+
+	void decayColour32_t::setDecaytime(int _time, uint8_t channel) {
+		/* Sets decay time for channel	:	0/ 1/ 2/ 3/ 	4 / 	 5
+																aka	:	B/ G/ R/ W/ BGR	/ BGRW 			*/
+		int ch=0;
+		if (channel == 4) channel = 2;
+		else if (channel > 4) channel = 3;
+		else ch = channel;
+		for (; ch <= channel; ch++){
+			_indvlChannelDecayTime[ch] = _time;
+			_updateChannel(ch);
+		}
+	}
+
+	void decayColour32_t::_updateChannel(int Channel)	{
+		dChannel[Channel].calcLinearBrightnessLevels(_indvlChannelDecayTime[Channel], _fps);
+	}
+
+	uint32_t decayColour32_t::Decay(uint32_t Pixel, uint32_t baseline) {
+		byte* const blbyte = (byte*)&baseline;
+		byte* const Pixbyte = (byte*)&Pixel;
+		for (int ch=0; ch<4; ch++) {
+			int T;
+			bool H = Pixbyte[ch] > blbyte[ch];
+			bool L = Pixbyte[ch] < blbyte[ch];
+			if (H) {
+				// needed a correction here with max(0,...) because rollover was still occuring. 
+				T = max(0x00, l_table[Pixbyte[ch]] -dChannel[ch].LBLpFrame[f]);
+				if (false && ch==3) {
+					Serial.print("\t> ");
+					Serial.print(Pixbyte[ch],HEX);
+					Serial.print(", ");
+					Serial.print(blbyte[ch],HEX);
+					Serial.print(", ");
+					Serial.print(dChannel[ch].LBLpFrame[f],HEX);
+					Serial.print(", ");
+					Serial.println(T,HEX);
 				}
-				else if (L) {
-					T = l_table[Pixbyte[ch]] +dChannel[ch].LBLpFrame[f];
-					T = min(g_table[T], blbyte[ch]);
-				}
-				else T = blbyte[ch];
-				Pixbyte[ch] = (byte)T;
+				T = max(g_table[T], blbyte[ch]);
+				// random here is needed to push past the 1 -> 0 issue when dChannel.LBLpFrame 
+				// values are too small. It works out to be rather dithering. 
+				if (f==2 && T <=2) T=random(0,3);
 			}
-			if (++f >2) f=0;
-			if (f==0) Serial.printf("\t[%2x - %2x]", dummy, Pixbyte[0]);
+			else if (L) {
+				T = min(0xff, l_table[Pixbyte[ch]] +dChannel[ch].LBLpFrame[f]);
+				if (false && ch==3) {
+					Serial.print("\t> ");
+					Serial.print(Pixbyte[ch],HEX);
+					Serial.print(", ");
+					Serial.print(blbyte[ch],HEX);
+					Serial.print(", ");
+					Serial.print(dChannel[ch].LBLpFrame[f],HEX);
+					Serial.print(", ");
+					Serial.println(T,HEX);
+				}
+				T = min(g_table[T], blbyte[ch]);
+			}
+			else T = blbyte[ch];
+			Pixbyte[ch] = (byte)T;
 		}
-};
+		if (++f >2) f=0;
+		return Pixel;
+	}
 
-
-int _reverseLookupLoop(byte lookup, int j) {
-	while (lookup < g_table[j]) { j--; }
-	return j;		//	returns index of value in array closest to lookup
-}
-
-byte _findLinearIndex(byte lookup) {
-	/* quick determine which third lookup value can be found, now we only need to 
-		compare up to 85 values, rather than 255. round 1, is lookup in the early third?
-		round 2, is lookup in the 2nd third? round 3, late third? search everything from 
-		the last value down. round 4 is an error condition, returns 0.  */
-	int _thirdPlace = 85;
-	int LI = g_table[_thirdPlace]; 
-	while (_thirdPlace < 256 && lookup >= LI) {
-		_thirdPlace+=85;
-		if (_thirdPlace > 255) {
-			LI = 0; return LI; break;	}
-		LI = g_table[_thirdPlace];
-	}		//	END loop
-	LI = _reverseLookupLoop(lookup, _thirdPlace);
-	LI = (byte)min(255,max(0,LI));		//	ensure LI stays within byte range.
-	return LI;
-}
 
 
 struct ddd_t {
+	// i think everything returns +/- deg°
 	int _orientation[3] {0};
 	
 	bool operator==(const ddd_t& R) const {
 		return (	(R._orientation[0] == ddd_t::_orientation[0]) &&
-							// (R._orientation[1] == ddd_t::_orientation[1]) &&
+							(R._orientation[1] == ddd_t::_orientation[1]) &&
 							(R._orientation[2] == ddd_t::_orientation[2]) )
 							;}
 	enum axis : byte {
@@ -329,6 +377,12 @@ struct ddd_t {
 	int p() {	return _orientation[0];	}
 	int r() {	return _orientation[1];	}
 	int y() {	return _orientation[2];	}
+	int nearby(ddd_t other) {
+		return sqrt(sq(this->p() - other.p()) + sq(this->y() - other.y()));
+	}
+	int compareRoll(ddd_t other) {
+		return abs(this->r() - other.r());
+	}
 };
 
 struct commsMode_t { 
@@ -436,7 +490,29 @@ struct displayMode_t {
 };
 
 
-	
+int _reverseLookupLoop(byte lookup, int j) {
+	while (lookup < g_table[j]) { j--; }
+	return j;		//	returns index of value in array closest to lookup
+}
+
+byte _findLinearIndex(byte lookup) {
+	/* quick determine which third lookup value can be found, now we only need to 
+		compare up to 85 values, rather than 255. round 1, is lookup in the early third?
+		round 2, is lookup in the 2nd third? round 3, late third? search everything from 
+		the last value down. round 4 is an error condition, returns 0.  */
+	int _thirdPlace = 85;
+	int LI = g_table[_thirdPlace]; 
+	while (_thirdPlace < 256 && lookup >= LI) {
+		_thirdPlace+=85;
+		if (_thirdPlace > 255) {
+			LI = 0; return LI; break;	}
+		LI = g_table[_thirdPlace];
+	}		//	END loop
+	LI = _reverseLookupLoop(lookup, _thirdPlace);
+	LI = (byte)min(255,max(0,LI));		//	ensure LI stays within byte range.
+	return LI;
+}
+
 byte gamma8(byte linear) {
 	/*
 			if using : const uint8_t PROGMEM gamma8[]  = {...};
@@ -472,6 +548,90 @@ void generateGamma8Table(float gamma=2.8) {
 	}
 	Serial.println(" };");
 }
+
+
+
+
+
+
+class k_colour {
+		/* Kelvin Temperature to RGB | Credit to Tanner Helland for the base algorithm
+		Port to C++ for Unreal Engine by Jorge Valle Hurtado - byValle */
+	// Temperature input in Kelvin valid in the range 1000 K to 40000 K. White light = 6500K
+	int Temperature_K;
+
+	/* 	Estimate, or lookup, the colour temp of the White led component of your RGBW leds
+				2700k		Warm
+				3000k		Warm White
+				4000k		Cool White
+				5000k		Daylight
+				6000k		Cool Daylight
+				7000k		Cold White 			*/
+	int NeoPixel_whiteChannel_temp = 3500;
+	
+	// RGB components
+	float Red_f;
+	float Green_f;
+	float Blue_f;
+
+	// Temperature divided by 100 for calculations
+	float temp_k; // (Temperature_K / 100);
+	
+	// Final result as an RGBW NeoPixel style Color	ie: 0xwwrrggbb 
+	uint32_t NEOPIX_col32;
+	uint8_t _chanByte[4];	
+public:
+	uint32_t Calculate(int Temperature_K = 6500) {
+		temp_k = ((Temperature_K)+(5000-NeoPixel_whiteChannel_temp)) / 100;
+		// WHITE
+		_chanByte[3] = 55;
+
+		// RED
+		if (temp_k <= 66)	Red_f = 255;
+		else Red_f = 329.698727446 * pow(temp_k - 60, -0.1332047592);
+		_chanByte[2] = constrain(Red_f,0,255);
+
+		// GREEN
+			if (temp_k <= 66)	Green_f = 99.4708025861 * log(temp_k) - 161.1195681661;
+			else	Green_f = 288.1221695283 * pow(temp_k - 60, -0.0755148492);
+			_chanByte[1] = constrain(Green_f,0,255);
+
+		// BLUE
+			if (temp_k >= 66)	Blue_f = 255;
+			else	{
+				if (temp_k <= 19)	Blue_f = 0;
+				else	Blue_f = 138.5177312231 * log(temp_k - 10) - 305.0447927307;
+			}
+			_chanByte[0] = constrain(Blue_f,0,255);
+
+		// FINAL RESULT AS ....
+			byte* neo_ptr = (byte*)&NEOPIX_col32;
+			neo_ptr[0] = _chanByte[0];		//	blue
+			neo_ptr[1] = _chanByte[1];		//	green
+			neo_ptr[2] = _chanByte[2];		//	red
+			neo_ptr[3] = _chanByte[3];		//	white
+
+			Serial.printf("%iK\tg.%2x r.%2x b.%2x w.%2x - NEO_PIX memory format: %#010x\n", Temperature_K, _chanByte[1], _chanByte[2], _chanByte[0], _chanByte[3], NEOPIX_col32);
+	return NEOPIX_col32;
+	}
+};	//	END class k_colour
+
+
+
+uint32_t _seekAnswers() {
+	uint32_t answer{};
+	for (int i = 0; i < 9; i++) {		answer += analogRead(i);		answer *= analogRead(i);	}
+	return answer;
+}
+void generateRandomSeed() {
+	randomSeed((int32_t)_seekAnswers());
+	int r = random(8 * (1 + (int)_seekAnswers()));
+	while (r-- > 0) (void)random(r);		//	burn rnd lot of rnd generated numbers
+}
+
+
+
+
 
 
 #endif 		//		__STRUCTS_H__

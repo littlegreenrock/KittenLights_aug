@@ -1,0 +1,43 @@
+<!--Copyright (c) 2024 by Wakana Y.K. (https://codepen.io/wakana-k/pen/oNPdPoy)-->
+<!-- using Noto Emoji : https://fonts.google.com/noto/specimen/Noto+Emoji -->
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>The Kitten Lights Blind The Weary Drivers</title>
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+</head>
+<h1>ESP8266<br />Kitten Lights</h1>
+<table>
+  <tr>
+    <td>Tilt Left/Right [gamma]</td>
+    <td id="doTiltLR"></td>
+  </tr>
+  <tr>
+    <td>Tilt Front/Back [beta]</td>
+    <td id="doTiltFB"></td>
+  </tr>
+  <tr>
+    <td>Direction [alpha]</td>
+    <td id="doDirection"></td>
+  </tr>
+</table>
+<main>
+  <section id="group1">
+    <label style="--icon:'🌅';--color:#87da87">
+      <input type="radio" value="rad" id="rad" name="act">Radiant</label><br />
+    <label style="--icon:'🥀';--color:lightpink">
+      <input type="radio" value="dec" id="dec" name="act">Decay</label><br />
+    <label style="--icon:'✨';--color:skyblue">
+      <input type="radio" value="spkl" id="spkl" name="act">Sparkle</label>
+  </section>
+  <p id="fb"></p>
+</main>
+
+<footer>
+  <p></p>
+</footer>
+
+</html>

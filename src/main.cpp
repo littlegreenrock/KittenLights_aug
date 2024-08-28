@@ -94,7 +94,7 @@ timeout_t Timeout;
 decayColour32_t DK;
 byte _decayArrayRGBW[4]{8,8,8,8};
 animationDirection direction{_static};
-uint32_t _baselineColour{0x00000033};		//		0xwwbbrrgg
+uint32_t _baselineColour{0x00000000};		//		0xwwbbrrgg
 char ERR_CODE[6]{'\0'};
 const char* ERR_CODE_ptr = &ERR_CODE[0];
 int _pulseInterval{3000};
@@ -103,16 +103,6 @@ int step{0};
 
 
 /*			Functions							°º¤ø,¸¸,ø¤º°`°º¤ø,¸,ø¤°º¤ø,¸¸,ø¤º°`°º¤ø,¸			*/
-uint32_t _seekAnswers() {
-	uint32_t answer{};
-	for (int i = 0; i < 9; i++) {		answer += analogRead(i);		answer *= analogRead(i);	}
-	return answer;
-}
-void generateRandomSeed() {
-	randomSeed((int32_t)_seekAnswers());
-	int r = random(8 * (1 + (int)_seekAnswers()));
-	while (r-- > 0) (void)random(r);		//	burn rnd lot of rnd generated numbers
-}
 
 // FS initialization		-------------------------------------------------------
 void init_LittleFS() {
@@ -136,6 +126,9 @@ void doLeds(void) {
 	ledB.update();
 };
 
+void actualDecayFunc(int LED, uint32_t* baselineToUse) {
+	Strip.setPixelColor(LED, DK.Decay(Strip.getPixelColor(LED), *baselineToUse));
+}
 
 bool baselineDecay(bool Enable) {
 	/*	This function updates the led strip, once per animation frame or fps times
@@ -145,24 +138,19 @@ bool baselineDecay(bool Enable) {
 		we update the LED strip. Second, we implement a decay routine on the array.
 	*/
 	//	check for fps tick
-	if (DK.Tik()==false) return false;
+	if (DK.Tick()==false) return false;
 	else {
 		//	this is the *only* time strip.show() is called.
 		Strip.show();
 		//	checkpoints: configuration, & decay rate is not zero.
 		if (Enable) {
 			int LED_bytes_Counter = 0;
-			byte* PixBytePointer = Strip.getPixels();
-			byte baselineByte[4] = {0x00, 0x00, 0xff, 0x00}; // 0123 GR_B
-			
 			while (LED_bytes_Counter < Strip.numPixels()) {
-				if (LED_bytes_Counter>9 && LED_bytes_Counter<16)	Serial.printf("%3i :\tpCol %2x %2x %2x %2x, ", LED_bytes_Counter, PixBytePointer[0], PixBytePointer[1], PixBytePointer[2], PixBytePointer[3]);
-				DK.Decay(PixBytePointer, _baselineColour);
-				if (LED_bytes_Counter>9 && LED_bytes_Counter<16)	Serial.printf("%2x %2x %2x %2x\n", PixBytePointer[0], PixBytePointer[1], PixBytePointer[2], PixBytePointer[3]);
-				PixBytePointer+=4;
-				LED_bytes_Counter++;			//	inc loop count
-			}		//	END while 
-		}		//	END if
+				actualDecayFunc(LED_bytes_Counter, &_baselineColour);
+				// Strip.setPixelColor(LED_bytes_Counter, DK.Decay(Strip.getPixelColor(LED_bytes_Counter), _baselineColour));				
+				LED_bytes_Counter++;			//	inc while loop
+			}		//	END while loop 
+		}			//	END if(Enable)
 	}
 	return true;
 }
@@ -186,24 +174,34 @@ void setup() {
 	}
 	Strip.begin();						//	INITIALIZE NeoPixel object
 	Strip.clear();						//	clear led array
-	Strip.setPixelColor(10,0x000000ff);	
-	Strip.setPixelColor(12,0x0000ff00);	
-	Strip.setPixelColor(14,0x00ff0000);	
-	Strip.setPixelColor(16,0xff000000);	
-	Strip.show();
+	// Strip.setPixelColor(10,0x000000ff);			//	blue
+	// Strip.setPixelColor(12,0x0000ff00);			//	
+	// Strip.setPixelColor(14,0x00ff0000);			//	
+	// Strip.setPixelColor(16,0xff000000);			//	white
+	// Strip.show();
+	Serial.println("\nBEGIN");
 	delay(2000);
-	DK.setFPS(40);
-	Timeout.Add(2000);
-	// DK.setDecayChannel(RGBW, 850);
+	// k_colour Helland;
+	// int count=0;
+	// for (int i = 1500; i< 15000; i+=90) {
+	// 	Strip.setPixelColor(count++, Helland.Calculate(i));
+	// }
+	// Strip.show();
+	// delay(6000);
+	DK.Begin(42, 800);
+	// DK.setDecaytime(1250, 0);		//	b	
+	// DK.setDecaytime(2450, 1);		//	g
+	// DK.setDecaytime( 650, 2);		//	r
+	// DK.setDecaytime( 100, 3);		//	w	
+	Timeout.Next(0);
 
 }		//		- = - = - = - = - E N D   s e t u p ( ) - = - = - = - = - 
 
 
 void loop() {
 	uint32_t SadColour;
-	if (Timeout.Expired())	{
-		Timeout.Add(5000);
-		SadColour = (random(0x00,0xff) << 16) + (random(0x00,0xff) << 8) + random(0x00,0xff);
+	if (Timeout.CheckPoint(5000))	{
+		SadColour = (random(0x00,0xff) << 24) + (random(0x00,0xff) << 16) + (random(0x00,0xff) << 8) + random(0x00,0xff);
 		Serial.printf("%#010x\n", SadColour);
 		for (int l=0; l<150; l++) {
 			Strip.setPixelColor(l, SadColour);
