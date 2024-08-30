@@ -5,8 +5,26 @@
 
 const uint8_t DEBOUNCE_DELAY = 20;		//	milliseconds
 byte gamma8(byte);
-
-const uint8_t g_table[256] = {			// 2.2
+const uint8_t g_Table[256] = {			//	2.2(hex)
+//			0			1			2			3			4			5			6			7			8			9			a			b			c			d			e			f
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,	//	0
+			0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02,	//	1
+			0x03, 0x03, 0x03, 0x03, 0x03, 0x04, 0x04, 0x04, 0x04, 0x05, 0x05, 0x05, 0x05, 0x06, 0x06, 0x06,	//	2
+			0x06, 0x07, 0x07, 0x07, 0x08, 0x08, 0x08, 0x09, 0x09, 0x09, 0x0A, 0x0A, 0x0B, 0x0B, 0x0B, 0x0C,	//	3
+			0x0C, 0x0D, 0x0D, 0x0D, 0x0E, 0x0E, 0x0F, 0x0F, 0x10, 0x10, 0x11, 0x11, 0x12, 0x12, 0x13, 0x13,	//	4
+			0x14, 0x14, 0x15, 0x16, 0x16, 0x17, 0x17, 0x18, 0x19, 0x19, 0x1A, 0x1A, 0x1B, 0x1C, 0x1C, 0x1D,	//	5
+			0x1E, 0x1E, 0x1F, 0x20, 0x21, 0x21, 0x22, 0x23, 0x23, 0x24, 0x25, 0x26, 0x27, 0x27, 0x28, 0x29,	//	6
+			0x2A, 0x2B, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F, 0x30, 0x31, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,	//	7
+			0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F, 0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47,	//	8
+			0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F, 0x51, 0x52, 0x53, 0x54, 0x55, 0x57, 0x58, 0x59, 0x5A,	//	9
+			0x5B, 0x5D, 0x5E, 0x5F, 0x61, 0x62, 0x63, 0x64, 0x66, 0x67, 0x69, 0x6A, 0x6B, 0x6D, 0x6E, 0x6F,	//	a
+			0x71, 0x72, 0x74, 0x75, 0x77, 0x78, 0x79, 0x7B, 0x7C, 0x7E, 0x7F, 0x81, 0x82, 0x84, 0x85, 0x87,	//	b
+			0x89, 0x8A, 0x8C, 0x8D, 0x8F, 0x91, 0x92, 0x94, 0x95, 0x97, 0x99, 0x9A, 0x9C, 0x9E, 0x9F, 0xA1,	//	c
+			0xA3, 0xA5, 0xA6, 0xA8, 0xAA, 0xAC, 0xAD, 0xAF, 0xB1, 0xB3, 0xB5, 0xB6, 0xB8, 0xBA, 0xBC, 0xBE,	//	d
+			0xC0, 0xC2, 0xC4, 0xC5, 0xC7, 0xC9, 0xCB, 0xCD, 0xCF, 0xD1, 0xD3, 0xD5, 0xD7, 0xD9, 0xDB, 0xDD,	//	e
+			0xDF, 0xE1, 0xE3, 0xE5, 0xE7, 0xEA, 0xEC, 0xEE, 0xF0, 0xF2, 0xF4, 0xF6, 0xF8, 0xFB, 0xFD, 0xFF,	//	f
+};
+const uint8_t g_table[256] = {			//	2.2(dec)
 //			0		1		2		3		4		5		6		7		8		9		a		b		c		d		e		f
 				0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  1,	//	0
 				1,  1,  1,  1,  1,  1,  1,  1,  1,  2,  2,  2,  2,  2,  2,  2,	//	1
@@ -25,7 +43,7 @@ const uint8_t g_table[256] = {			// 2.2
 			192,194,196,197,199,201,203,205,207,209,211,213,215,217,219,221,	//	e
 			223,225,227,229,231,234,236,238,240,242,244,246,248,251,253,255 	//	f
 	};
-const uint8_t l_table[256] = {
+const uint8_t l_Table[256] = {			//	a2.2(hex)
 //			0			1			2			3			4			5			6			7			8			9			a			b			c			d			e			f
 			0x07,	0x13,	0x1c,	0x22,	0x26,	0x2a,	0x2e,	0x32, 0x35, 0x38, 0x3a,	0x3d, 0x40, 0x42, 0x45, 0x47,	//	0
 			0x49, 0x4b, 0x4d, 0x4f, 0x51, 0x52, 0x54, 0x56, 0x57, 0x59, 0x5b, 0x5c, 0x5e, 0x5f, 0x61, 0x62,	//	1
@@ -45,19 +63,29 @@ const uint8_t l_table[256] = {
 			0xf8, 0xf8, 0xf9, 0xf9, 0xfa, 0xfa, 0xfb, 0xfb, 0xfc, 0xfc, 0xfc, 0xfd, 0xfd, 0xfe, 0xfe, 0xff,	//	f
 };
 
-enum animationDirection: byte {
-	// previous _mirror is replaced by _lateral/_medial
-	_static, _proximal, _distal, _lateral, _medial,
-};
 
 //const byte NEOPixelChannelOrder[4];		//	0bWWRRGGBB  = NEO_GRBW
 
 
 class baselinebyte {
 public:
-uint32_t baselineColour;
-byte* const blc_pt = (byte*)&baselineColour;
-
+	uint32_t color32;
+	byte* const colB = (byte*)&color32;
+	void warmer(){
+		// degamma
+		// determine K
+		// inc K
+		// re-calc lin
+		// gamma
+	}
+	void cooler(){}
+	void lessTent(){
+		// use NEO_PIXEL brightness() function, or, 
+		// de-gamma
+		// dec lin
+		// gamma
+	}
+	void moreTent(){}
 
 };
 
@@ -118,10 +146,10 @@ public:
 		return (int(this->Val) <= int(right));
 	}
 	byte Lin() {
-		return l_table[Val];
+		return l_Table[Val];
 	}
 	byte Lin(int lbl, bool Higher) {
-		return g_table[(byte(int(l_table[Val] + (Higher?-lbl:lbl))))];
+		return g_table[(byte(int(l_Table[Val] + (Higher?-lbl:lbl))))];
 	}
 	byte Gam() {
 		return g_table[Val];
@@ -131,17 +159,6 @@ public:
 	}
 private:
 	byte Val;
-};
-
-
-enum illumination: uint8_t 
-{
-	 	//		toggle bits
-	_start=0, decay,
-		//		exclusive bits
-	 radiate, sparkle, cometTail, larsonSeq, twinkle, festoon, LiveCursor,
-		//		unmapped functionss
-	_stop=0x80,	
 };
 
 struct timeout_t {
@@ -183,9 +200,9 @@ struct Button_t {
 	const uint8_t  pin;
 	const bool theTruePressState;
 	Button_t(uint8 assignedPin, bool button_is_wired_as_PULLUP) : pin{assignedPin}, theTruePressState{!button_is_wired_as_PULLUP} {};
-	bool     lastReading{0};
-	uint32_t lastDebounceTime{0};
-	uint16_t _state{0};
+	bool     lastReading{};
+	uint32_t lastDebounceTime{};
+	uint16_t _state{};
 	bool pressed()			{ return _state == 1; }
 	bool released()			{ return _state == 0xffff; }
 	bool held(uint16_t _ms = 0) {
@@ -242,14 +259,11 @@ class decayColour32_t {
 		int _tickTimeSteps[3];
 		byte f{0};
 		void _updateChannel(int ) ;
-
 };		//		END class decay_colour32_t
-
 	void decayColour32_t::Begin(int fps, int decayTime) {
 		setFPS(fps);
 		setDecaytime(decayTime, 5);
 	}
-
 /*		This tick is different than timeout_t.  Since we're ticking based off
 	fps/1000, rather than X ms., we will never have accurate integral incremental steps. So
 	a needless way to improve this is to calculate 2 additional ms tick steps. Tick()
@@ -266,7 +280,6 @@ class decayColour32_t {
 			}
 		return false;
 	}
-
 	void decayColour32_t::setFPS(int newFPS) {
 		_fps = constrain(newFPS, 10, 120);
 		f=0; _time=millis();
@@ -275,13 +288,11 @@ class decayColour32_t {
 			_tickTimeSteps[n-1] = ((n*1000)/_fps) +0.5;	}
 		updateChannels();
 	}
-
 	void decayColour32_t::updateChannels() {
 		for (int ch = 0; ch<4; ch++){
 			_updateChannel(ch);
 		}
 	}
-
 	void decayColour32_t::setDecaytime(int _time, uint8_t channel) {
 		/* Sets decay time for channel	:	0/ 1/ 2/ 3/ 	4 / 	 5
 																aka	:	B/ G/ R/ W/ BGR	/ BGRW 			*/
@@ -294,11 +305,9 @@ class decayColour32_t {
 			_updateChannel(ch);
 		}
 	}
-
 	void decayColour32_t::_updateChannel(int Channel)	{
 		dChannel[Channel].calcLinearBrightnessLevels(_indvlChannelDecayTime[Channel], _fps);
 	}
-
 	uint32_t decayColour32_t::Decay(uint32_t Pixel, uint32_t baseline) {
 		byte* const blbyte = (byte*)&baseline;
 		byte* const Pixbyte = (byte*)&Pixel;
@@ -308,7 +317,7 @@ class decayColour32_t {
 			bool L = Pixbyte[ch] < blbyte[ch];
 			if (H) {
 				// needed a correction here with max(0,...) because rollover was still occuring. 
-				T = max(0x00, l_table[Pixbyte[ch]] -dChannel[ch].LBLpFrame[f]);
+				T = max(0x00, l_Table[Pixbyte[ch]] -dChannel[ch].LBLpFrame[f]);
 				if (false && ch==3) {
 					Serial.print("\t> ");
 					Serial.print(Pixbyte[ch],HEX);
@@ -325,7 +334,7 @@ class decayColour32_t {
 				if (f==2 && T <=2) T=random(0,3);
 			}
 			else if (L) {
-				T = min(0xff, l_table[Pixbyte[ch]] +dChannel[ch].LBLpFrame[f]);
+				T = min(0xff, l_Table[Pixbyte[ch]] +dChannel[ch].LBLpFrame[f]);
 				if (false && ch==3) {
 					Serial.print("\t> ");
 					Serial.print(Pixbyte[ch],HEX);
@@ -346,20 +355,35 @@ class decayColour32_t {
 	}
 
 
+enum class ANIM: byte {
+	// previous _mirror is replaced by _lateral/_medial
+	_static, _proximal, _distal, _lateral, _medial,
+};
+enum class DISP: uint8_t {
+	_start=0, decay,	//	toggle bits
+	 radiate, sparkle, cometTail, larsonSeq, twinkle, festoon, LiveCursor,	//	exclusive bits
+	_stop=0x80,				//	unmapped functions
+};
+enum class COM: byte {
+		WiFi=0, STA, AP, mDNS, WS, RemoteXY, BT, leBT,  	//	bits  0b00101011
+		offline=0xf0, none=0xff,													//	functions
+	};
 
 struct ddd_t {
-	// i think everything returns +/- deg°
+private:
 	int _orientation[3] {0};
+public:
+	enum axis : byte {
+		// just an alias for P/Pitch to be used as array pointer.
+		P=0, R=1, Y=2, Pitch=0, Roll=1, Yaw=2,
+	};
 	
+	// i think everything returns +/- deg°
 	bool operator==(const ddd_t& R) const {
 		return (	(R._orientation[0] == ddd_t::_orientation[0]) &&
 							(R._orientation[1] == ddd_t::_orientation[1]) &&
 							(R._orientation[2] == ddd_t::_orientation[2]) )
 							;}
-	enum axis : byte {
-		// just an alias for P/Pitch to be used as array pointer.
-		P=0, R=1, Y=2, Pitch=0, Roll=1, Yaw=2,
-	};
 	int plug(float piValue) {
 		return int(573*piValue);
 	}
@@ -386,105 +410,127 @@ struct ddd_t {
 };
 
 struct commsMode_t { 
-	uint8_t bitMap8{};
-	enum mod: byte {
-		WiFi=0, STA, AP, mDNS, WS, RemoteXY, BT, leBT,  	//	bits  0b00101011
-		offline=0xf0, none=0xff,													//	functions
-	};
-	bool set(mod M) {
+	
+
+private:
+	uint8_t _bitMap8 {} ;
+	// bool _toggle(COM ) ;
+	// void _set(COM ) ;
+	// void _clr(COM ) ;
+
+public:
+	// bool set(COM ) ;
+	// bool get(COM ) ;
+	// bool get(COM , COM ) ;
+
+
+	bool set(COM M) {
 		switch (M) {
-			case offline	:	_clr(WiFi); 			//						break;
-			default 			:	return false; 								break;
-			case STA			:	_clr(AP);			_set(WiFi);			break;
-			case AP 			:	_clr(STA);		_set(WiFi);			break;
-			case mDNS			:	_set(WiFi);										break;
-			case RemoteXY	:	_clr(WS);											break;
-			case WS				:	_clr(RemoteXY);								break;
-			case BT 			:	_clr(leBT);		_clr(WiFi);			break;
-			case leBT			:	_clr(BT);			_clr(WiFi);			break;
-			case WiFi			:					 											break;
+			case COM::offline		:	_clr(COM::WiFi); 			//						break;
+			default 			:	return false; 							break;
+			case COM::STA				:	_clr(COM::AP);				_set(COM::WiFi);	break;
+			case COM::AP 				:	_clr(COM::STA);				_set(COM::WiFi);	break;
+			case COM::mDNS			:	_set(COM::WiFi);			break;
+			case COM::RemoteXY	:	_clr(COM::WS);				break;
+			case COM::WS				:	_clr(COM::RemoteXY);	break;
+			case COM::BT 				:	_clr(COM::leBT);			_clr(COM::WiFi);	break;
+			case COM::leBT			:	_clr(COM::BT);				_clr(COM::WiFi);	break;
+			case COM::WiFi			:					 							break;
 		}
 		_set(M);		//	<-- 'fall-through' default switch action.
 		return get(M);
 	}
-	bool get(mod M) {
-		return bitRead(bitMap8,int(M));
+	bool get(COM M) {
+		return bitRead(_bitMap8,int(M));
 	}
-	bool get(mod M, mod N) {
+	bool get(COM M, COM N) {
 		return get(M) && get(N);
 	}
-	
-	bool _toggle(mod B) {
-		bitWrite(bitMap8, int(B), !(bitRead(bitMap8, int(B))));
-		return bitRead(bitMap8, int(B));
+	bool _toggle(COM B) {
+		bitWrite(_bitMap8, int(B), !(bitRead(_bitMap8, int(B))));
+		return bitRead(_bitMap8, int(B));
 	}
-	void _set(mod B) {
-		bitSet(bitMap8, int(B));
+	void _set(COM B) {
+		bitSet(_bitMap8, int(B));
 	}
-	void _clr(mod B) {
-		bitClear(bitMap8, int(B));
+	void _clr(COM B) {
+		bitClear(_bitMap8, int(B));
 	}
 };
 
 struct displayMode_t {
-	uint16_t bitMap16{3};		//	0000 0011 : start, baseline-decay
-	animationDirection Dir;
-	void set(illumination Ac) {
+public:
+	// void set(DISP ) ;
+	// bool directionIs(ANIM ) ;
+	// void set(ANIM ) ;
+	// void flipDirection() ;
+	// bool get(DISP ) ;
+
+private:
+	uint16_t _bitMap16 {3} ;		//	0000 0011 : start, baseline-decay
+	ANIM _Dir ;
+	// bool _get(DISP ) ;
+	// void _set(DISP ) ;
+	// void _clr(DISP ) ;
+	// bool _toggle(DISP ) ;
+	// void _clearExclusives(DISP ) ;	
+
+public:
+	void set(DISP Ac) {
 		switch (Ac) {
-			case decay  		:	_set(Ac);	_clr(radiate);	break;
-			case radiate		:	_set(Ac);	_clr(decay);		break;
-			case _start			:	_set(Ac);									break;
-			case _stop			:	_clr(_start);							break;
-			case sparkle 		:	_toggle(Ac);							break;
-			default 				:	_clearExclusives(Ac);			break;
+			case DISP::decay  	:	_set(Ac);	_clr(DISP::radiate);	break;
+			case DISP::radiate	:	_set(Ac);	_clr(DISP::decay);		break;
+			case DISP::_start		:	_set(Ac);												break;
+			case DISP::_stop		:	_clr(DISP::_start);							break;
+			case DISP::sparkle	:	_toggle(Ac);										break;
+			default 						:	_clearExclusives(Ac);						break;
 		}
 	}
-	bool directionIs(animationDirection Anim) {
-		return (Dir==Anim);
+	bool directionIs(ANIM Anim) {
+		return (_Dir==Anim);
 	}
-	animationDirection direction() {
-		return Dir;
+	ANIM direction() {
+		return _Dir;
 	}
-	void newDirection(animationDirection Anim) {
-		Dir = Anim;
+	void set(ANIM Anim) {
+		_Dir = Anim;
 	}
 	void flipDirection() {
-		switch (Dir) {
-			case  _proximal	: Dir = _distal; 		break;
-			case  _distal		: Dir = _proximal;	break;
-			case  _lateral	: Dir = _medial;		break;
-			case  _medial		: Dir = _lateral;		break;
+		switch (_Dir) {
+			case  ANIM::_proximal	: _Dir = ANIM::_distal; 		break;
+			case  ANIM::_distal		: _Dir = ANIM::_proximal;	break;
+			case  ANIM::_lateral	: _Dir = ANIM::_medial;		break;
+			case  ANIM::_medial		: _Dir = ANIM::_lateral;		break;
 			default: 		break;
 		}
 	}
-	bool get(illumination Ac) {
+	bool get(DISP Ac) {
 		bool result{false};
 		switch (Ac) {
-			case _stop			:	result = !_get(Ac);	break;
-			case _start			:	;		//	intentional fall through
+			case DISP::_stop			:	result = !_get(Ac);	break;
+			case DISP::_start			:	;		//	intentional fall through
 			default 				:	result = _get(Ac);	break;
 		}
 		return result;
 	}
-	
-	bool _get(illumination B) {
-		return bitRead(bitMap16, int(B&0x0f));
+	bool _get(DISP B) {
+		return bitRead(_bitMap16, int(B)&(0x0f));
 	}
-	void _set(illumination B) {
-		bitSet(bitMap16, int(B&0x0f));
+	void _set(DISP B) {
+		bitSet(_bitMap16, int(B)&(0x0f));
 	}
-	void _clr(illumination B) {
-		bitClear(bitMap16, int(B&0x0f));
+	void _clr(DISP B) {
+		bitClear(_bitMap16, int(B)&(0x0f));
 	}
-	bool _toggle(illumination Ac) {
-		bitWrite(bitMap16, int(Ac&0x0f), !_get(Ac));
+	bool _toggle(DISP Ac) {
+		bitWrite(_bitMap16, int(Ac)&(0x0f), !_get(Ac));
 		return _get(Ac);
 	}
-	void _clearExclusives(illumination bitParameter=_stop) {	
+	void _clearExclusives(DISP bitParameter=DISP::_stop) {	
 		const uint16_t exclusivesBitmap = 0x03;		//	0's are the exclusives
-		if (bitParameter > _start && bitParameter < _stop) {		//	0's are the exclusives
-			bitMap16 &= exclusivesBitmap;
-			bitSet(bitMap16, int(bitParameter));
+		if (bitParameter > DISP::_start && bitParameter < DISP::_stop) {		//	0's are the exclusives
+			_bitMap16 &= exclusivesBitmap;
+			bitSet(_bitMap16, int(bitParameter));
 		}
 	}
 };
@@ -494,7 +540,6 @@ int _reverseLookupLoop(byte lookup, int j) {
 	while (lookup < g_table[j]) { j--; }
 	return j;		//	returns index of value in array closest to lookup
 }
-
 byte _findLinearIndex(byte lookup) {
 	/* quick determine which third lookup value can be found, now we only need to 
 		compare up to 85 values, rather than 255. round 1, is lookup in the early third?
@@ -512,7 +557,6 @@ byte _findLinearIndex(byte lookup) {
 	LI = (byte)min(255,max(0,LI));		//	ensure LI stays within byte range.
 	return LI;
 }
-
 byte gamma8(byte linear) {
 	/*
 			if using : const uint8_t PROGMEM gamma8[]  = {...};
@@ -520,7 +564,6 @@ byte gamma8(byte linear) {
 	*/
 	return g_table[linear];
 }
-
 // attempts to estimate what the linear value was, rather than use the lookup table
 byte deGamma(byte gammaValue) {
 	int Lin=0;		//		index of g_table[], and our estimated original linear value
@@ -534,87 +577,183 @@ byte deGamma(byte gammaValue) {
 	if (n<3) return Lin-1;
 	else return (byte)((Lin-n)+(n/2));
 }
-	
 //	Generate an LED gamma-correction table for Arduino sketches, given any gamma factor.
 //	2.8 is a common normal.  I personally like 2.2.
-void generateGamma8Table(float gamma=2.8) {
-	int	max_in  = 255,		//	Top end of INPUT range
-			max_out = 255;		//	Top end of OUTPUT range
-	Serial.printf("const uint8_t gamma[] = {\t\t\\\\\tbased on gamma factor %1.1f", gamma);
-	for(int i=0; i<=max_in; i++) {
-		if(i > 0) Serial.print(',');
-		if((i & 15) == 0) Serial.print("\n  ");
-		Serial.printf("%3d", (int)(pow((float)i / (float)max_in, gamma) * max_out + 0.5));
+
+void generateGammaByteTable(float gamma=2.8, bool outputInHexPlease=0) {
+	char C;
+	Serial.printf("const uint8_t gamma[] = {\t\t\\\\\tgamma factor %1.1f(%s)", gamma, outputInHexPlease?"hex":"dec");
+	for(uint8_t i = 0; i <= 0xff; i++) {
+		if(i > 0) Serial.print(", ");
+		if((i & 0x0f) == 0) {
+			C = (i>>4);
+			C>0x9?C+=0x61:C+=0x30;
+			Serial.printf("\t//\t%c\n", C);
+		}
+		Serial.printf(outputInHexPlease?"%#04x":"%3d", gamma8Calc(&i, &gamma));
 	}
 	Serial.println(" };");
 }
 
 
+uint8_t gamma8Calc(const uint8_t* ColourByte, const float* G_value) {
+	float PercentIntensity = (float)*ColourByte / (float)255.0;
+	float Result = pow(PercentIntensity, *G_value) * 255.0 + 0.5;
+	return (uint8_t)Result; }
 
-
-
-
-class k_colour {
+class K_colour {
 		/* Kelvin Temperature to RGB | Credit to Tanner Helland for the base algorithm
 		Port to C++ for Unreal Engine by Jorge Valle Hurtado - byValle */
-	// Temperature input in Kelvin valid in the range 1000 K to 40000 K. White light = 6500K
-	int Temperature_K;
-
-	/* 	Estimate, or lookup, the colour temp of the White led component of your RGBW leds
-				2700k		Warm
-				3000k		Warm White
-				4000k		Cool White
-				5000k		Daylight
-				6000k		Cool Daylight
-				7000k		Cold White 			*/
-	int NeoPixel_whiteChannel_temp = 3500;
 	
-	// RGB components
-	float Red_f;
-	float Green_f;
-	float Blue_f;
+	/* 	Estimate, or lookup, the colour temp of the White led component of your RGBW leds	
+			EU and regions outside of the tropic lines describe home lighting as:
+				2700K - 3000K	:	Warm
+				3000K - 4000K	:	Neutral
+				4000K - 6500K	:	Cool white
+			AUS and regions inside of the tropic lines describe home lighting as:
+				2600K - 3200K	:	Warm
+				3200K - 4500K	:	Neutral / Cool Whiteᴬ
+				4500K+       	:	Cool    / Daylight Whiteᴬ
+																	ᴬ: terms as per the Lighting Council of Australia  */
 
-	// Temperature divided by 100 for calculations
-	float temp_k; // (Temperature_K / 100);
-	
-	// Final result as an RGBW NeoPixel style Color	ie: 0xwwrrggbb 
-	uint32_t NEOPIX_col32;
-	uint8_t _chanByte[4];	
+#ifndef constrain		// Arduino.h provided 
+#define constrain(amt,low,high) ((amt)<(low)?(low):((amt)>(high)?(high):(amt)))
+#endif
+
 public:
-	uint32_t Calculate(int Temperature_K = 6500) {
-		temp_k = ((Temperature_K)+(5000-NeoPixel_whiteChannel_temp)) / 100;
-		// WHITE
-		_chanByte[3] = 55;
+	int NEOPIX_WhiteLED_temp = 5000;		//	4000, 5000, 6000, 7000
+	uint32_t NEOPIX_col32;			//	post-gamma values for human observation
+	uint8_t _chanByte[4];				//	pre-gamma or linear brightness level
+	int _W_intensity;						//	percent
+	
 
-		// RED
+
+	int WhiteLEDColourCorrection(int _temp_W) {
+		if      (_temp_W <= 4000) return  5;
+		else if (_temp_W <= 5000) return 10;
+		else if (_temp_W <= 6000) return 15;
+		else if (_temp_W <= 7000) return 20;
+		else return 0; 
+	}
+	
+	uint32_t Calculate(int Temperature_K) {
+		//	in Kelvin. valid: 1000 to 40000 K. (RGB 'White' light = 6500K)
+		float Red_f, Green_f, Blue_f;	//	RGB components
+		float White_f;								//	optional W component
+		float temp_k; 								//	necessary for color byte calculations;
+		temp_k = (constrain(Temperature_K,1000,40000)) / 100;
+	//	RED
 		if (temp_k <= 66)	Red_f = 255;
 		else Red_f = 329.698727446 * pow(temp_k - 60, -0.1332047592);
 		_chanByte[2] = constrain(Red_f,0,255);
-
-		// GREEN
+	//	GREEN
 			if (temp_k <= 66)	Green_f = 99.4708025861 * log(temp_k) - 161.1195681661;
 			else	Green_f = 288.1221695283 * pow(temp_k - 60, -0.0755148492);
 			_chanByte[1] = constrain(Green_f,0,255);
-
-		// BLUE
+	//	BLUE
 			if (temp_k >= 66)	Blue_f = 255;
 			else	{
 				if (temp_k <= 19)	Blue_f = 0;
 				else	Blue_f = 138.5177312231 * log(temp_k - 10) - 305.0447927307;
 			}
 			_chanByte[0] = constrain(Blue_f,0,255);
+	//	WHITE
+			_W_intensity = WhiteLEDColourCorrection(NEOPIX_WhiteLED_temp);
+			White_f = Red_f * (_W_intensity/100);
+			_chanByte[3] = constrain(White_f,0,255);
 
-		// FINAL RESULT AS ....
+		// FINAL RESULT AS gamma(2.2) corrected values packaged in a NEO-PIXEL 32bit
+		//	colour format,	ie: 0xwwrrggbb 
 			byte* neo_ptr = (byte*)&NEOPIX_col32;
-			neo_ptr[0] = _chanByte[0];		//	blue
-			neo_ptr[1] = _chanByte[1];		//	green
-			neo_ptr[2] = _chanByte[2];		//	red
-			neo_ptr[3] = _chanByte[3];		//	white
+			neo_ptr[3] = g_Table[_chanByte[3]];		//	white
+			neo_ptr[2] = g_Table[_chanByte[2]];		//	red
+			neo_ptr[1] = g_Table[_chanByte[1]];		//	green
+			neo_ptr[0] = g_Table[_chanByte[0]];		//	blue
 
-			Serial.printf("%iK\tg.%2x r.%2x b.%2x w.%2x - NEO_PIX memory format: %#010x\n", Temperature_K, _chanByte[1], _chanByte[2], _chanByte[0], _chanByte[3], NEOPIX_col32);
+			// Serial.printf("%iK\tg.%2x r.%2x b.%2x w.%2x - NEO_PIX memory format: %#010x\n", Temperature_K, _chanByte[1], _chanByte[2], _chanByte[0], _chanByte[3], NEOPIX_col32);
 	return NEOPIX_col32;
 	}
-};	//	END class k_colour
+};	//	END class K_colour
+
+
+
+class sigmoid_fly {
+	bool _live{false};
+	int* array{0};
+	
+	void _reset() {
+		delete array;
+		array = nullptr;
+		_live=false;
+	}
+public:
+	sigmoid_fly(){}	;
+	~sigmoid_fly(){
+		_reset();
+	};
+
+	float sigmoid(float x){
+		return (1.0 / (1.0 + exp(x)));
+	}
+	float _softArg_to_curveAdjust(int soft) {
+		// soft = constrain(soft, 0, 3);
+		switch (soft) {
+			default : return 0.2;
+			break; case 1 : return 0.17;
+			break; case 2 : return 0.13;
+			break; case 3 : return 0.1;
+		}
+	}
+
+	void _topandbottom(const int* minValue, const int* maxValue, const float* adj, int* subtract, int* multiply) {
+		if (*minValue < *maxValue) {
+			*subtract = -*minValue / *adj;
+			*multiply = *maxValue/ *adj - *minValue / *adj;
+		}
+		else {
+			*subtract = *maxValue / *adj;
+			*multiply = *minValue / *adj - *maxValue / *adj;
+		}
+
+	}
+
+
+	/* The method used by this function to scale, and make scalable, 
+			relies on building the array from the middle to the beginning, 
+			and the end, respectively.	If you fiddle around with Sigmoid 
+			curves for a bit you will understand why. 		*/
+	bool build(int minValue, int maxValue, int Soft) {
+		const float Incline = _softArg_to_curveAdjust(Soft);
+		int subtract, multiply, i;
+		float _adjust = sigmoid(Incline * -32);
+		_topandbottom(&minValue, &maxValue, &_adjust, &subtract, &multiply);
+
+		if (_live) _reset();
+		array = new int[64];
+		_live=true;
+		float x = 0;		// first pass, early array
+		for (i=32; i>=0; i--) {
+			array[i] = ((sigmoid(x) * multiply) - subtract) ;
+			x -= Incline;
+		}
+		x = 0;					// second pass, late array
+		for (i=32; i<64; i++) {
+			array[i] = ((sigmoid(x) * multiply) - subtract) ;
+			x += Incline;
+		}
+		return build();
+	}
+	
+	bool build() {
+		return _live;
+	}
+	int get(int idx) {
+		idx = constrain(idx, 0, 63);
+		if (_live) return array[idx];
+		else return 0;
+	}
+};		//	END class
+
 
 
 
@@ -628,8 +767,6 @@ void generateRandomSeed() {
 	int r = random(8 * (1 + (int)_seekAnswers()));
 	while (r-- > 0) (void)random(r);		//	burn rnd lot of rnd generated numbers
 }
-
-
 
 
 

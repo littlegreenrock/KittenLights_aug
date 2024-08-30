@@ -1,116 +1,125 @@
 var f = {},
-  p = postMessage,
-  r = "hasOwnProperty";
+	p = postMessage,
+	r = "hasOwnProperty";
 onmessage = function (e) {
-  var d = e.data,
-    i = d.i,
-    t = d[r]("t") ? d.t : 0;
-  switch (d.n) {
-    case "a":
-      f[i] = setInterval(function () {
-        p(i);
-      }, t);
-      break;
-    case "b":
-      if (f[r](i)) {
-        clearInterval(f[i]);
-        delete f[i];
-      }
-      break;
-    case "c":
-      f[i] = setTimeout(function () {
-        p(i);
-        if (f[r](i)) delete f[i];
-      }, t);
-      break;
-    case "d":
-      if (f[r](i)) {
-        clearTimeout(f[i]);
-        delete f[i];
-      }
-      break;
-  }
+	var d = e.data,
+		i = d.i,
+		t = d[r]("t") ? d.t : 0;
+	switch (d.n) {
+		case "a":
+			f[i] = setInterval(function () {
+				p(i);
+			}, t);
+			break;
+		case "b":
+			if (f[r](i)) {
+				clearInterval(f[i]);
+				delete f[i];
+			}
+			break;
+		case "c":
+			f[i] = setTimeout(function () {
+				p(i);
+				if (f[r](i)) delete f[i];
+			}, t);
+			break;
+		case "d":
+			if (f[r](i)) {
+				clearTimeout(f[i]);
+				delete f[i];
+			}
+			break;
+	}
 };
-// A couple helpers to get elements by ID:
+// Shortened helpers statements to get elements by ID:
 function qs(sel) {
-  return document.querySelector(sel);
+	return document.querySelector(sel);
 }
 function qsa(sel) {
-  return document.querySelectorAll(sel);
+	return document.querySelectorAll(sel);
 }
 function gebi(sel) {
-  return document.getElementById(sel);
-}
-//function debugFeedback(text)	{ document.getElementById('fb').innerHTML = text;	};
-if ("DeviceOrientationEvent" in window) {
-  window.addEventListener("deviceorientation", deviceOrientationHandler, true);
-} else {
-  gebi("logoContainer").innerText = "Device Orientation API not supported.";
+	return document.getElementById(sel);
 }
 
-function deviceOrientationHandler(event) {
-  const abg = [event.alpha, event.beta, event.gamma];
-  //const tiltLR = event.gamma;
-  //const tiltFB = event.beta;
-  //const dir = event.alpha;
-  gebi("doTiltLR").innerHTML = Math.round(abg[2]);
-  gebi("doTiltFB").innerHTML = Math.round(abg[1]);
-  gebi("doDirection").innerHTML = Math.round(abg[0]);
-  //const char* json = "{\"sensor\":\"gps\",\"time\":1351824120,\"data\":[48.756080,2.302038]}";
-  const orientObj = {
-    Orient: [abg[0], abg[1], abg[2]]
-  };
-  const OrientJSON = JSON.stringify(orientObj);
-  if (websocket.readystate == 1) websocket.send(OrientJSON);
+if (!window.DeviceOrientationEvent) {
+	gebi("do-unsupported").classList.remove("hidden");
+} else {
+	gebi("do-info").classList.remove("hidden");
+	window.addEventListener("deviceorientation", function (event) {
+		gebi("beta").innerHTML = Math.round(event.beta);
+		gebi("gamma").innerHTML = Math.round(event.gamma);
+		gebi("alpha").innerHTML = Math.round(event.alpha);
+		gebi("is-absolute").innerHTML = event.absolute
+			? "true"
+			: "false";
+	});
 }
-//var logo = document.getElementById("imgLogo");
-//logo.style.webkitTransform = "rotate(" + tiltLR + "deg) rotate3d(1,0,0, " + (tiltFB * -1) + "deg)";
-//logo.style.MozTransform = "rotate(" + tiltLR + "deg)";
-//logo.style.transform = "rotate(" + tiltLR + "deg) rotate3d(1,0,0, " + (tiltFB * -1) + "deg)";
+
+
+
+if (!window.DeviceOrientationEvent) {
+	gebi("dm-unsupported").classList.remove("hidden");
+} else {
+	gebi("dm-info").classList.remove("hidden");
+	window.addEventListener("deviceorientation", function (event) {
+		let OrientABG = [Math.round(event.alpha), Math.round(event.beta), Math.round(event.gamma)];
+		gebi("orientation-pitch-beta").innerHTML = Math.round(event.beta);
+		gebi("orientation-roll-gamma").innerHTML = Math.round(event.gamma);
+		gebi("orientation-yaw-alpha").innerHTML = Math.round(event.alpha);
+		gebi("interval").innerHTML = event.interval;
+	});
+}
+
+if (!("oncompassneedscalibration" in window)) {
+	gebi("cnc-unsupported").classList.remove("hidden");
+} else {
+	window.addEventListener("compassneedscalibration", function (event) {
+		alert("Compass needs calibrating: Wave your device like you're trying to 'click' your wrist bones");
+	});
+}
 
 var gateway = `ws://${window.location.hostname}/ws`;
 var websocket;
+
 window.addEventListener("load", onLoad);
 function onLoad(event) {
-  initWebSocket();
-  initButton();
+	initWebSocket();
+	initButton();
 }
 // WebSocket handling
 // ----------------------------------------------------------------------------
 function initWebSocket() {
-  console.log("Trying to open a WebSocket connection...");
-  websocket = new WebSocket(gateway);
-  websocket.onopen = onOpen;
-  websocket.onclose = onClose;
-  websocket.onmessage = onMessage;
+	console.log("Trying to open a WebSocket connection...");
+	websocket = new WebSocket(gateway);
+	websocket.onopen = onOpen;
+	websocket.onclose = onClose;
+	websocket.onmessage = onMessage;
 }
 function onOpen(event) {
-  console.log("Connection opened");
-  //boo = true;
+	console.log("Connection opened");
 }
 function onClose(event) {
-  console.log("Connection closed");
-  setTimeout(initWebSocket, 2000);
+	console.log("Connection closed");
+	setTimeout(initWebSocket, 2000);
 }
 function onMessage(event) {
-  console.log("Message rcvd");
-  //debugFeedback('rcvd');
-  let data = JSON.parse(event.data);
-  console.log(data.mode);
-  document.getElementById(data.mode).checked = true;
+	console.log("Message rcvd");
+	let data = JSON.parse(event.data);
+	console.log(data.mode);
+	// document.getElementById(data.mode).checked = true;
 }
 
 // Button handling
 // ----------------------------------------------------------------------------
 function initButton() {
-  gebi("rad").addEventListener("click", onToggle);
-  gebi("dec").addEventListener("click", onToggle);
-  gebi("spkl").addEventListener("click", onToggle);
+	gebi("rad").addEventListener("click", onToggle);
+	gebi("dec").addEventListener("click", onToggle);
+	gebi("spkl").addEventListener("click", onToggle);
 }
 
 function onToggle(event) {
-  //debugFeedback(this.name+':'+this.id);
-  const myobj = { act: this.id };
-  const myJSON = JSON.stringify(myobj);
-  if (websocket.readystate == 1) websocket.send(myJSON);
+	// const myobj = { act: this.id };
+	// const myJSON = JSON.stringify(myobj);
+	// if (websocket.readystate == 1) websocket.send(myJSON);
 }
