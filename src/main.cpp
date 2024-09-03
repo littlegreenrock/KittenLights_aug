@@ -16,10 +16,18 @@
 #include <ESP8266mDNS.h>
 #include <Adafruit_NeoPixel.h>
 #include <ArduinoJson.h>			// Copyright © 2014-2024, Benoit BLANCHON
+// #include <TimeLib.h>
+
 // #include "fourChannelTransition.h"
 // #include "morseEncoder.h"
 // #include "calibrate3dOrientation.h"
 #include "structs.h"
+#include "K_colour.h"
+#include "decayColour32.h"
+#include "timeout.h"
+#include "sigmoid_fly.h"
+#include "slinkyPix.h"
+
 // #include "appRemote.h"
 
 // Definition of macros		-----------------------------------------------------
@@ -29,14 +37,16 @@
 #define BLUE_LED			13
 #define BTN_PIN				04			//	onboard flash button 04
 #define HTTP_PORT			80
-// #define NEO_PIN				D7			//	GPIO13
 #define NEO_PIN				D7			
 #define LED_COUNT		 150			//	hardware number of pixels in led strip
 #define BRIGHTNESS		50			//	Set BRIGHTNESS to about
-// NEO_GRBW=bbggrrww
 Adafruit_NeoPixel Strip(LED_COUNT, NEO_PIN, NEO_GRBW + NEO_KHZ800);
 const int LED_numBytes = LED_COUNT*4;		//	Pixel byte array length
-// byte dumb[4]{1,0,2,3};		//	byte order for R G B W
+const byte midway = LED_COUNT/2 + 0.5;
+
+const char* ntpServer = "oceania.pool.ntp.org";
+const int gmtOffset_sec = +10;
+const int daylightOffset_sec = 00;
 
 commsMode_t		$CM;
 displayMode_t	$DM;
@@ -55,7 +65,6 @@ IPAddress gateway(192,168,1,1);
 IPAddress subnet(255,255,255,0);
 const char* ssid_AP = "ESP8266";
 const char* password_AP = "deeznutz";
-
 
 #ifdef DEBUG 
 	namespace Debug {
@@ -84,19 +93,20 @@ const char* password_AP = "deeznutz";
 
 /*		Forward Declarations		°º¤ø,¸¸,ø¤º°`°º¤ø,¸,ø¤°º¤ø,¸¸,ø¤º°`°º¤ø,¸			*/
 	void generateRandomSeed() ;
-	void doLeds(void) ;
+	void doOnboards(void) ;
 	void _actualDecayFunc(int, uint32_t* ) ;
+	void e_feedShift(uint32_t* ) ;
+	void e_Shift(int ) ;
 	
-
-	
-Led_t onboard_led	= { LED_BUILTIN,	true  };
 Button_t button		= { BTN_PIN,			true  };
+q_button_t QButtn	= { BTN_PIN,			true  };
+Led_t onboard_led	= { LED_BUILTIN,	true  };
 Led_t	ledR				= { RED_LED,			false };
 Led_t	ledG				= { GREEN_LED,		false };
 Led_t	ledB				= { BLUE_LED,			false };
 
-timeout_t Timeout;
-decayColour32_t DK;
+timeout_t globalTimeout;
+decayColour32 DK;
 byte _decayArrayRGBW[4]{8,8,8,8};
 ANIM direction{ANIM::_static};
 uint32_t _baselineColour{0x00000000};		//		0xwwbbrrgg
@@ -111,22 +121,22 @@ int globalStep{0};
 // FS initialization		-------------------------------------------------------
 void init_LittleFS() {
 	if (!LittleFS.begin()) {
-		Serial.println("Cannot mount LittleFS volume...");
+		Serial.println("FATAL: Cannot mount LittleFS volume...");
 		ERR_CODE_ptr = "fs";
 		while (1) {
-			doLeds(); 
+			doOnboards(); 
 		}
 	}
 }
-
+//	Program configuration -----------------------------------------------------
 void init_Configuration() {
 	$CM.set(COM::WiFi);
 	$CM.set(COM::STA);
 	$CM.set(COM::mDNS);
 	$DM.set(DISP::decay);
-	$DM.set(ANIM::_lateral);
+	$DM.set(ANIM::_static);
 }
-
+//	WiFi networking initialization --------------------------------------------
 void Init_mDNS(const char *name) {
   if ($CM.get(COM::mDNS)) {
 		if (!MDNS.begin(name)) {
@@ -140,11 +150,11 @@ void Init_mDNS(const char *name) {
 bool _searchSSID() {
 	int retry{0};
 	bool waiting{true};
-	Timeout.Next(0);
+	globalTimeout.Next(0);
 	char feedback;
 	while (waiting==true) {
 		waiting = WiFi.waitForConnectResult() != WL_CONNECTED;
-		if (Timeout.CheckPoint(500)) {
+		if (globalTimeout.CheckPoint(500)) {
 			feedback='.';
 			if (retry%6==0) {		//	disconnect should we be connected. wait half second to allow disconnect.
 				WiFi.disconnect(false);
@@ -195,8 +205,6 @@ void initWebServer() {
 	server.serveStatic("/", LittleFS, "/");
 	server.begin();
 }
-
-
 // WebSocket initialization		-------------------------------------------------
 void notifyClients(int ClientID=0) {
 		JsonDocument jsonDoc;
@@ -244,51 +252,136 @@ void initWebSocket() {
 		server.addHandler(&ws);
 }
 
+byte checkQButton() {
+	enum Click : byte {
+		idle=0, released=1, held=2, down=3, click=4, doubleclick=5,
+	};
+	static Click _state; 
+	static uint32_t clicktime;
+	uint32_t heldtime;
+	static bool dclick;
+	if (QButtn.pressed()) {
+		if (dclick && clicktime + 500 > millis()) _state = doubleclick;
+	}
+		else {
+			clicktime = millis();
+			dclick = false;
+		}
+	if (QButtn.released()) {
+		if (clicktime + 500 > millis() && dclick==false) {
+			dclick = true; 
+			clicktime = millis();
+		}
+		else if (_state==down) {_state = released;}
+		if (_state==held) heldtime = millis() - clicktime;	// TODO: keep held time
+	}
+	if (QButtn.held() && _state != held) {
+		if (!dclick && _state==idle) _state = click;
+		if (_state==doubleclick) {
+			_state = down;
+			clicktime = millis();
+		 }
+		else if (clicktime + 500 > millis()) {
+			_state = held;
+			clicktime=millis();
+		}
+		else _state = down;
+	}
+	if (QButtn.idle()) {
+		if (_state==held) {
+			_state = released;
+			heldtime = 0;
+		}
+		else if (_state==released) _state = idle;
+		if (dclick && millis () > clicktime + 400) dclick = false; 
+		if (_state==down) _state = released;
+	}
+	return _state;
+}
 
-void doLeds(void) {
+bool buttonHeldDuringPowerOn(int t) {
+	uint32_t Delay = millis() + t;
+	// while (millis() < Delay)	button.read();
+	// return (button.held(t/2));
+	while (millis() < Delay) QButtn.read();
+	return QButtn.held();
+}
+
+
+void doOnboards(void) {
+	button.read();
+	byte Qbuttonstate = checkQButton();
 	ledR.state = 0;
 	ledG.state = 0;
 	ledB.state = 0;
-	// onboard_led.state = !Morse.iterate(ERR_CODE_ptr);
 	onboard_led.state = button.held(100);
 	onboard_led.update();
 	ledR.update();
 	ledG.update();
 	ledB.update();
+	yield();		//	specific to esp32 and 8266 for its own utility overheads (ie: wifi)
 };
 
+void Sunrise(int Delay) {
+	static timeout_t Sunrise;
+	static uint32_t dawn32{};
+	if (Sunrise.CheckPoint(Delay)) {
+		if (++globalStep>=70) {
+			globalStep=0;
+			Sunrise.Extend(Delay*5);
+		}
+		dawn32 = Strip.Color(Dawn[globalStep][0],Dawn[globalStep][1], Dawn[globalStep][2], 1);
+		dawn32 = Strip.gamma32(dawn32);
+	}
+	e_Shift(1);
+}
 
 
 
-void eff_Shift(int places, int startAt, int endAt) {
-	int _head, _tail, pp;
-	bool shifdn;
-	//	begin safety inspector
-	if (startAt<0	||	startAt>Strip.numPixels())			startAt	= Strip.numPixels();
-	if (endAt<0		||	endAt >Strip.numPixels())				endAt		= 0;
-	if (places==0	||	abs(places)>abs(startAt-endAt))	places	= 1;
-	//	begin direction finding
-	shifdn	=	(startAt>endAt);
-	_tail		=	(shifdn?min(startAt, endAt):max(startAt, endAt));
-	_head		=	(shifdn?max(startAt, endAt):min(startAt, endAt));
-	shifdn?places=abs(places):places=-abs(places);
-	pp			=	_tail+places;
-	//	begin shift all nominated array values by places 
-	while (shifdn?pp<=_head:pp>=_head) {
-		Strip.setPixelColor(pp-places, Strip.getPixelColor(pp));
-		shifdn?pp++:pp--;
+void e_feedShift(uint32_t *colour) {
+	int pix{0};
+	int pixSupplement{0};
+	if ($DM.directionIs(ANIM::_static)) return;
+	else if ($DM.directionIs(ANIM::_proximal))	pix = Strip.numPixels()-1;
+	else if ($DM.directionIs(ANIM::_distal)) 		pix = 0;		//	redund
+	else if ($DM.directionIs(ANIM::_medial)) 		pixSupplement = Strip.numPixels()-1;
+	else if ($DM.directionIs(ANIM::_lateral)) 	pix = midway;
+	Strip.setPixelColor(pix, *colour);
+	if (pixSupplement) Strip.setPixelColor(pixSupplement, *colour);
+}
+// replaces eff_Shift and eff_Radiate
+void e_Shift(int positions=1) {
+	const int Places = abs(positions);
+	const int pixA = 0;
+	const int pixM = midway;
+	const int pixZ = Strip.numPixels();
+	int idx;
+	int pBegin{0}, pEnd{0}, dBegin{0}, dEnd{0};
+	
+	// start will always end up < end.
+	
+	// if it looks backwards, yes, it's supposed to be that way! 
+	if ($DM.directionIs(ANIM::_proximal)) {
+		pBegin = pixA; pEnd = pixZ;	}
+	else if ($DM.directionIs(ANIM::_medial)) {
+		pBegin = pixM; pEnd = pixZ; dBegin = pixM; dEnd = pixA;	}
+	else if ($DM.directionIs(ANIM::_distal)) {
+		dBegin = pixZ; dEnd = pixA; }
+	else if ($DM.directionIs(ANIM::_lateral)) {
+		pBegin = pixA; pEnd = pixM; dBegin = pixZ; dEnd = pixM;	}
+	else if ($DM.directionIs(ANIM::_static)) {	return;	}
+	
+	//	Each loop is one pixel of shifting, for the entire strip.
+	//proximal
+	for (idx = pBegin; idx < pEnd-Places; idx++) {
+		Strip.setPixelColor(idx, Strip.getPixelColor(idx+Places));
+	}
+	
+	//distal
+	for (idx = dBegin-1; idx >= dEnd+Places; idx--) {
+		Strip.setPixelColor(idx, Strip.getPixelColor(idx-Places));
 	}
 }
-
-void eff_Radiate() {
-	// copy the centre LED value gradually to the head/tail ends
-	int midway = Strip.numPixels()/2;
-	eff_Shift(1, midway, 0);
-	eff_Shift(1, midway, Strip.numPixels());
-	_actualDecayFunc(midway, &_baselineColour);
-}
-
-
 void _actualDecayFunc(int LED, uint32_t* baselineToUse) {
 	Strip.setPixelColor(LED, DK.Decay(Strip.getPixelColor(LED), *baselineToUse));
 }
@@ -305,38 +398,30 @@ bool baselineDecay(bool Enable) {
 		//	this is the *only* time strip.show() is called.
 		Strip.show();
 		//	checkpoints: configuration, & decay rate is not zero.
-		if (Enable) {	//	begin loop entire array at once. 
+		// if (Enable) {	//	begin loop entire array at once. 
+		if ($DM.get(DISP::decay)) {
 			int LED_bytes_Counter = 0;
 			while (LED_bytes_Counter < Strip.numPixels()) {
 				_actualDecayFunc(LED_bytes_Counter, &_baselineColour);
 				LED_bytes_Counter++;
 			}		//	END while loop 
-		}			//	END if(Enable)
+		}			//	END if(Decay)
+		else if ($DM.get(DISP::radiate)) {
+			e_Shift(1);
+
+		}
 	}
 	return true;
 }
 
-void HellandSpread(const int LEDCOUNT, int maxKelvin) {
-	const int minKelvin = 1000;
-	K_colour Helland;
-	maxKelvin = constrain(maxKelvin,6500,40000);
-	int K_step = (maxKelvin-minKelvin)/(LEDCOUNT);
-	int _LedNo{0};
-	for (int Kelvin = 1000; Kelvin <= maxKelvin; Kelvin+=K_step) {
-		Strip.setPixelColor(_LedNo++, Helland.Calculate(Kelvin));
-		// serial feedback
-		if (_LedNo==1) Serial.printf("from %5i K  -", Kelvin);
-		if (_LedNo==LEDCOUNT) Serial.printf("to-  %5i K\n", Kelvin);
-		if (_LedNo>LEDCOUNT) break;		//	 you have run out of LEDs to illuminate
-		Strip.show();
-	}
-}
-
 void doHS(int pauseInterval) {
 	uint32_t _pausetime;
-	for (int Tmax = 19000; Tmax > 9500; Tmax -= 1000){
+	K_colour Tanner;
+	int lOrange = 0;
+	for (int Tmax = 20000; Tmax > 9000; Tmax -= 1000) {
+			if (Tmax<15000) lOrange = (15000 - Tmax)/20;
 			_pausetime = millis() + pauseInterval;
-			HellandSpread(LED_COUNT, Tmax);
+			Tanner.HellandSpread(Strip, LED_COUNT, Tmax, 1000 + lOrange);
 				while (millis() < _pausetime){
 					// visual indication that the loop is still running
 					Strip.setPixelColor(0, uint32_t(_pausetime-millis()));
@@ -347,42 +432,41 @@ void doHS(int pauseInterval) {
 	delay(pauseInterval);
 }
 
-void NEO_memory_alignment_test(byte no_LEDs_per_colour) {
-	/* if you see blue then green then red then white LEDs
-	in THAT exact order, then your NEO_GRBW-esq configuration is 
-	correct.  Otherwise it is wrong. */
-	uint32_t bgrw {0x000000ff};	//	must not change this value
-	for (int i=0; i<(no_LEDs_per_colour*5);i++) {
-		if (i>0 && i%no_LEDs_per_colour==0) bgrw<<=8;
-		Strip.setPixelColor(i,bgrw);
-	}
-	Strip.show();
-	delay(5000);
-}
-
-bool buttonHeldDuringPowerOn(int t) {
-	//	checks if button is held at powerOn for half+ timeout duration
-	// 	f *will* take t ms until return control
-	uint32_t Delay = millis()+t;
-	while (millis()<Delay)	button.read();
-	return (button.held(t/2));
-}
-
-void fly () {
-	sigmoid_fly spider;
-	spider.build(-75, 75, 0 );
-	Serial.println("\nFly: -75 to 75, normal curve");
-	for (int i=0; i< 64; i++) {
-		Serial.printf("%2i - %2i\n", i, spider.get(i));
-	}
-	
-	Serial.println("\nFly: 0 to 75, softer curve");
-	spider.build(0, 75, 1 );
-	for (int i=0; i< 64; i++) {
-		Serial.printf("%2i - %2i\n", i, spider.get(i));
+void bikini(slinkyPix* E1, slinkyPix* E2) {
+	static timeout_t dance;
+	if (dance.CheckPoint(50)) {
+		E1->move();
+		E2->move();
 	}
 }
 
+void eff_Slinky(bool kill=false) {
+	static slinkyPix Ea(0, 0, 1);
+	static slinkyPix Ex(75, 75, 76);
+	static slinkyPix* E1{nullptr};
+	static slinkyPix* E2{nullptr};
+	if (kill) {
+		delete E1;
+		delete E2;
+		E1=nullptr;
+		E2=nullptr;
+	}
+	else if (E1 == nullptr) {
+		E1 = new slinkyPix(25, 20, 31);
+		E2 = new slinkyPix(50, 35, 60);		
+		E1->set(0x0000aa00, _limits::fwdBounce);
+		E2->set(0x00aa0000, _limits::onlyDown);
+	}
+	else {
+		bikini(E1, E2);
+		Ea.poke();
+		Ex.poke();
+		E1->poke();
+		E2->poke();
+		// Serial.printf("led %i, col %lx\n", E1->ledNo, E1->colorCode);
+		// Strip.setPixelColor(75, millis());**89
+	}
+}
 
 void setup() {
 	Serial.begin(115200); delay(250);
@@ -408,31 +492,94 @@ void setup() {
 	 }
 	initWebServer();			delay(100);
 	initWebSocket();			delay(100);
-	DK.Begin(42, 800);
-	fly();
+	DK.Begin(48, 800);
+	// Strip.setBrightness(20);
+	static const char ntpServerName[] = "oceania.pool.ntp.org";
+	const int timeZone = +10;
+	
 
 }		//		- = - = - = - = - E N D   s e t u p ( ) - = - = - = - = - 
 
-
 void loop() {
-	//	housekeeping
+	static int Kelvin{0};
 	// ArduinoOTA.handle();
 	ws.cleanupClients();
-	//	END housekeeping
 
-	uint32_t SadColour;
-	if (Timeout.CheckPoint(5000))	{
-		SadColour = (random(0x00,0x02) << 24) + (random(0x00,0xff) << 16) + (random(0x00,0xff) << 8) + random(0x00,0xff);
-		//Serial.printf("%#010x\n", SadColour);
-		for (int l=0; l<150; l++) {
-			Strip.setPixelColor(l, SadColour);
-		}
+	if (millis()%15000==0)   {}
+	//	Display Animation tick.
+	// if (globalTimeout.CheckPoint(100+(Kelvin/100))) {
+	// 	uint32_t COLCOLCOL{};
+	// 	// withDirection(1);
+	// 	if (Kelvin<=0) {	Kelvin = 10000;	}
+	// 	else Kelvin-=100;
+	// 	byte i = K_to_idx(Kelvin);
+	// 	if (Kelvin>1000)	COLCOLCOL = Strip.Color(red(i),green(i),blue(i),white(i));
+	// 	e_feedShift(&COLCOLCOL);
+	// }
+	eff_Slinky();
+
+
+		// FPS Heartbeat
+	if (baselineDecay(1)) {
+		doOnboards();
 	}
-	if (baselineDecay(button.held(100))) doLeds();
-	//yield();		//	specific to esp32 and 8266 to have time to do its own utility overheads (ie: wifi)
-	button.read();
-
-	
 }		//		- = - = - = - = - E N D   l o o p ( ) - = - = - = - = - 
 
 
+//	================= GRAVEYARD =======================
+
+// void fly () {
+// 	sigmoid_fly spider;
+// 	spider.build(-75, 75, 0 );
+// 	Serial.println("\nFly: -75 to 75, normal curve");
+// 	for (int i=0; i< 64; i++) {
+// 		Serial.printf("%2i - %2i\n", i, spider.get(i));
+// 	}
+// 	Serial.println("\nFly: 0 to 75, softer curve");
+// 	spider.build(0, 75, 1 );
+// 	for (int i=0; i< 64; i++) {
+// 		Serial.printf("%2i - %2i\n", i, spider.get(i));
+// 	}
+// }
+
+
+// void NEO_memory_alignment_test(byte no_LEDs_per_colour) {
+// 	/* if you see blue then green then red then white LEDs
+// 	in THAT exact order, then your NEO_GRBW-esq configuration is 
+// 	correct.  Otherwise it is wrong. */
+// 	uint32_t bgrw {0x000000ff};	//	must not change this value
+// 	for (int i=0; i<(no_LEDs_per_colour*5);i++) {
+// 		if (i>0 && i%no_LEDs_per_colour==0) bgrw<<=8;
+// 		Strip.setPixelColor(i,bgrw);
+// 	}
+// 	Strip.show();
+// 	delay(5000);
+// }
+
+
+// void eff_Shift(int places, int startAt, int endAt) {
+// 	int _head, _tail, pp;
+// 	bool shifdn;
+// 	//	begin safety inspector
+// 	if (startAt<0	||	startAt>Strip.numPixels())			startAt	= Strip.numPixels();
+// 	if (endAt<0		||	endAt >Strip.numPixels())				endAt		= 0;
+// 	if (places==0	||	abs(places)>abs(startAt-endAt))	places	= 1;
+// 	//	begin direction finding
+// 	shifdn	=	(startAt>endAt);
+// 	_tail		=	(shifdn?min(startAt, endAt):max(startAt, endAt));
+// 	_head		=	(shifdn?max(startAt, endAt):min(startAt, endAt));
+// 	shifdn?places=abs(places):places=-abs(places);
+// 	pp			=	_tail+places;
+// 	//	begin 'shift all nominated array values' by places 
+// 	while (shifdn?pp<=_head:pp>=_head) {
+// 		Strip.setPixelColor(pp-places, Strip.getPixelColor(pp));
+// 		shifdn?pp++:pp--;
+// 	}
+// }
+
+// void eff_Radiate(uint32_t* decayToUse = nullptr) {
+// 	// copy the centre LED value gradually to the head/tail ends
+// 	eff_Shift(1, midway, 0);
+// 	eff_Shift(1, midway, Strip.numPixels());
+// 	if (decayToUse!=nullptr) _actualDecayFunc(midway, decayToUse);
+// }
