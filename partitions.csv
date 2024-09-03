@@ -1,0 +1,6 @@
+# Espressif ESP8266 Partition Table
+# Name,   Type, SubType, Offset,   Size
+nvs,      data, nvs,     0x9000,   0x4000
+phy_init, data, phy,     0xf000,   0x1000
+factory,  app,  ota_0,   0x10000,  0xF0000
+data,     data, littlefs,0x110000, 0xF0000
